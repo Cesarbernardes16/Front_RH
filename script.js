@@ -15,7 +15,7 @@ let listaColaboradoresGlobal = [];
 const usuarioPerfil = sessionStorage.getItem('usuarioPerfil'); // 'admin' ou 'user'
 const usuarioCPF = sessionStorage.getItem('usuarioCPF');
 
-// ======== FUNÇÕES DE FORMATAÇÃO (ATUALIZADAS) ========
+// ======== FUNÇÕES DE FORMATAÇÃO ========
 function formatarSalario(valor) {
     if (!valor) return '';
     const numeroLimpo = String(valor).replace("R$", "").replace(/\./g, "").replace(",", ".");
@@ -32,15 +32,13 @@ function formatarCPF(cpf) {
     return `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9, 11)}`;
 }
 
-// --- FUNÇÃO ATUALIZADA PARA CORRIGIR A DATA ---
 function formatarDataExcel(valor) {
     if (!valor) return '';
 
-    // 1. Verifica se é formato ISO String (ex: 2025-02-05 ou 2025-02-05T00:00:00)
-    // O regex procura por 4 digitos - 2 digitos - 2 digitos no inicio
+    // 1. Verifica se é formato ISO String
     if (typeof valor === 'string' && valor.match(/^\d{4}-\d{2}-\d{2}/)) {
         try {
-            const parteData = valor.split('T')[0]; // Garante pegar só a data caso venha com hora
+            const parteData = valor.split('T')[0];
             const [ano, mes, dia] = parteData.split('-');
             return `${dia}/${mes}/${ano}`;
         } catch (e) {
@@ -48,7 +46,7 @@ function formatarDataExcel(valor) {
         }
     }
 
-    // 2. Lógica antiga para Serial Number do Excel (ex: 45690)
+    // 2. Lógica para Serial Number do Excel
     const serial = Number(valor);
     if (isNaN(serial) || serial < 20000) return String(valor);
     try {
@@ -71,6 +69,24 @@ function formatarTempoDeEmpresa(dias) {
         res += `${m} ${m === 1 ? 'mês' : 'meses'}`;
     }
     return (a === 0 && m === 0) ? "Menos de 1 mês" : res;
+}
+
+// ======== FUNÇÕES DE CÁLCULO DE COTA (CORREÇÃO LEI 8.213/91) ========
+function calcularCotaPCD(total) {
+    if (!total || total < 100) return 0;
+    // Até 200 empregados: 2%
+    if (total <= 200) return Math.ceil(total * 0.02);
+    // De 201 a 500: 3%
+    if (total <= 500) return Math.ceil(total * 0.03);
+    // De 501 a 1000: 4%
+    if (total <= 1000) return Math.ceil(total * 0.04);
+    // De 1001 em diante: 5%
+    return Math.ceil(total * 0.05);
+}
+
+function calcularCotaAprendiz(total) {
+    if (!total) return 0;
+    return Math.ceil(total * 0.05);
 }
 
 // ======== SETUP DO DASHBOARD ========
@@ -129,7 +145,7 @@ function setupDashboard() {
     restaurarAbaAtiva();
 }
 
-// Lógica do Menu Mobile (Hambúrguer)
+// Lógica do Menu Mobile
 function setupMobileMenu() {
     const btnMenu = document.getElementById('btn-menu-burger');
     const btnClose = document.getElementById('btn-close-sidebar');
@@ -150,7 +166,6 @@ function setupMobileMenu() {
     if (btnClose) btnClose.addEventListener('click', closeMenu);
     if (overlay) overlay.addEventListener('click', closeMenu);
 
-    // Fechar menu ao clicar em link
     const links = document.querySelectorAll('.nav-link');
     links.forEach(l => l.addEventListener('click', () => {
         if(window.innerWidth <= 768) closeMenu();
@@ -215,7 +230,6 @@ async function carregarFiltrosAPI() {
         const res = await fetch(`${API_URL}/filtros`);
         let { areas, lideres, classificacoes } = await res.json();
         
-        // Normalizar dados dos filtros
         areas = areas.map(i => normalizarTexto(i));
         lideres = lideres.map(i => normalizarTexto(i));
         classificacoes = classificacoes.map(i => normalizarTexto(i));
@@ -278,7 +292,6 @@ async function fetchColaboradores() {
         }
 
         data.forEach(colaborador => {
-            // Normalizar os dados antes de exibir
             const colaboradorNormalizado = normalizarObjeto(colaborador);
             const index = listaColaboradoresGlobal.push(colaboradorNormalizado) - 1;
             dashboardContainer.innerHTML += criarCardColaborador(colaboradorNormalizado, index);
@@ -296,7 +309,7 @@ async function fetchColaboradores() {
     }
 }
 
-// ==== RESTAURAÇÃO COMPLETA DOS CAMPOS DO CARD ====
+// ======== ESTRUTURA ORIGINAL RECUPERADA ========
 function criarCardColaborador(colab, index) {
     const status = colab.SITUACAO || 'Indefinido';
     const statusClass = status.includes('AFASTADO') ? 'status-afastado' : (status.includes('DESLIGADO') ? 'status-desligados' : 'status-ativo');
@@ -312,7 +325,6 @@ function criarCardColaborador(colab, index) {
 
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
 
-    // Helper para evitar undefined
     const v = (val) => val || '';
 
     const nome = v(colab.NOME);
@@ -329,11 +341,10 @@ function criarCardColaborador(colab, index) {
     const lider = v(colab.LIDER);
     const ultimaFuncao = v(colab.CARGO_ANTIGO);
     
-    // AQUI É APLICADA A FORMATAÇÃO CORRIGIDA
     const dataPromocao = formatarDataExcel(colab['DATA_DA_PROMOCAO']);
     const classificacao = colab.CLASSIFICACAO || 'SEM';
 
-    // Estrutura Original Recuperada
+    // Estrutura Original com os campos vazios mantidos
     return `
         <div class="employee-card ${statusClass}">
             <div class="card-header">
@@ -428,7 +439,6 @@ async function uploadFotoPerfil(file, cpf) {
     }
 }
 
-// Wrapper para input file
 window.handleFileSelect = function(input, cpf) {
     if (input.files && input.files[0]) {
         uploadFotoPerfil(input.files[0], cpf);
@@ -448,15 +458,12 @@ function abrirModalDetalhes(index) {
     const status = colab.SITUACAO || '';
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
 
-    // HTML do Cabeçalho com Ícone de Câmera Visível
     header.innerHTML = `
         <div class="avatar-upload-wrapper">
             <img src="${fotoSrc}" alt="${nome}">
-            
             <div class="camera-badge" onclick="document.getElementById('file-input-${index}').click()" title="Alterar Foto">
                 <span class="material-icons-outlined">photo_camera</span>
             </div>
-            
             <input type="file" id="file-input-${index}" accept="image/*" style="display: none;" onchange="handleFileSelect(this, '${colab.CPF}')">
         </div>
         <div>
@@ -468,10 +475,10 @@ function abrirModalDetalhes(index) {
     grid.innerHTML = `
         <div class="modal-item"><strong>CPF</strong> <span>${formatarCPF(colab.CPF)}</span></div>
         <div class="modal-item"><strong>Matrícula</strong> <span>${colab.MATRICULA || '-'}</span></div>
-        <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO ATUAL'] || ''}</span></div>
+        <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO_ATUAL'] || ''}</span></div>
         <div class="modal-item"><strong>Área</strong> <span>${colab.ATIVIDADE || ''}</span></div>
         <div class="modal-item"><strong>Salário</strong> <span>${formatarSalario(colab.SALARIO)}</span></div>
-        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(colab['TEMPO DE EMPRESA'])}</span></div>
+        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(colab['TEMPO_DE_EMPRESA'])}</span></div>
         <div class="modal-item"><strong>Escolaridade</strong> <span>${colab.ESCOLARIDADE || ''}</span></div>
         <div class="modal-item"><strong>PCD</strong> <span>${colab.PCD || 'NÃO'}</span></div>
         <div class="modal-item"><strong>Líder</strong> <span>${colab.LIDER || ''}</span></div>
@@ -535,6 +542,7 @@ window.onclick = function(event) {
     if (event.target == modal) modal.style.display = "none";
 };
 
+// ======== FUNÇÕES DE GESTÃO E DASHBOARD ========
 async function carregarDadosDashboard(renderizarGraficos = false) {
     if (usuarioPerfil === 'user') return; 
     try {
@@ -546,19 +554,25 @@ async function carregarDadosDashboard(renderizarGraficos = false) {
 
         let data = await res.json();
         
-        // Normalizar dados recebidos da API
+        // Normaliza valores (incluindo o array de areas)
         data = normalizarObjeto(data);
 
-        if(!data || !data.stats || !data.areas) {
-            console.warn("Dados do dashboard incompletos ou vazios.");
-            return;
-        }
-
         const { stats, totalAtivos, areas } = data;
+
+        // --- CORREÇÃO PRINCIPAL: Normalizar as chaves do objeto STATS ---
+        // O backend manda as chaves "cruas" (ex: "Logistica"), mas o array 'areas'
+        // foi normalizado para "LOGÍSTICA". Isso causava o erro de "undefined".
+        const statsNormalizado = {};
+        if (stats) {
+            Object.keys(stats).forEach(key => {
+                const keyNorm = normalizarTexto(key);
+                statsNormalizado[keyNorm] = stats[key];
+            });
+        }
         
-        renderizarTabelasRelatorio(stats, areas, totalAtivos);
+        renderizarTabelasRelatorio(statsNormalizado, areas, totalAtivos);
         
-        if (renderizarGraficos) renderizarGraficosChartJS(stats, areas);
+        if (renderizarGraficos) renderizarGraficosChartJS(statsNormalizado, areas);
 
     } catch (e) { 
         console.error("Erro dashboard stats", e); 
@@ -567,15 +581,29 @@ async function carregarDadosDashboard(renderizarGraficos = false) {
 
 function renderizarTabelasRelatorio(stats, areas, totalAtivos) {
     if(!reportTableBodyQLP) return;
+    
+    // CORREÇÃO: Usar as novas funções de cálculo
+    const cotaPCD = calcularCotaPCD(totalAtivos);
+    const cotaJovem = calcularCotaAprendiz(totalAtivos);
+
+    // Atualiza os indicadores na tela
+    const elPCD = document.getElementById('quota-pcd-value');
+    if(elPCD) elPCD.textContent = cotaPCD;
+    
+    const elJovem = document.getElementById('quota-jovem-value');
+    if(elJovem) elJovem.textContent = cotaJovem;
+
     let htmlQLP = '', htmlPCD = '', htmlJovem = '';
-    document.getElementById('quota-pcd-value').textContent = Math.ceil(totalAtivos * (totalAtivos > 1000 ? 0.05 : 0.02));
-    document.getElementById('quota-jovem-value').textContent = Math.ceil(totalAtivos * 0.05);
+    
     areas.forEach(a => {
         const s = stats[a];
+        if (!s) return; 
+
         htmlQLP += `<tr><td>${a}</td><td>${s.meta.meta || 0}</td><td>${s.qlp}</td></tr>`;
         if(s.meta.meta_pcd || s.pcd > 0) htmlPCD += `<tr><td>${a}</td><td>${s.meta.meta_pcd || 0}</td><td>${s.pcd}</td></tr>`;
         if(s.meta.meta_jovem || s.jovem > 0) htmlJovem += `<tr><td>${a}</td><td>${s.meta.meta_jovem || 0}</td><td>${s.jovem}</td></tr>`;
     });
+    
     reportTableBodyQLP.innerHTML = htmlQLP;
     reportTableBodyPCD.innerHTML = htmlPCD || '<tr><td colspan="3">Vazio</td></tr>';
     reportTableBodyJovem.innerHTML = htmlJovem || '<tr><td colspan="3">Vazio</td></tr>';
@@ -585,30 +613,77 @@ function renderizarGraficosChartJS(stats, areas) {
     const criarDataset = (keyMeta, keyReal) => {
         const labels = [], dMeta = [], dReal = [], dGap = [];
         areas.forEach(a => {
-            const m = stats[a].meta[keyMeta] || 0;
-            const r = stats[a][keyReal];
+            const s = stats[a];
+            if (!s) return;
+
+            const m = s.meta[keyMeta] || 0;
+            const r = s[keyReal] || 0;
             if (m > 0 || r > 0) {
-                labels.push(a); dMeta.push(m); dReal.push(r); dGap.push(Math.max(0, m - r));
+                labels.push(a); 
+                dMeta.push(m); 
+                dReal.push(r); 
+                dGap.push(Math.max(0, m - r));
             }
         });
         return { labels, dMeta, dReal, dGap };
     };
+
     const render = (id, data, instance) => {
-        const ctx = document.getElementById(id).getContext('2d');
-        if(instance) instance.destroy();
+        const canvas = document.getElementById(id);
+        if(!canvas) return null;
+        
+        const ctx = canvas.getContext('2d');
+        if(instance) instance.destroy(); 
+        
         return new Chart(ctx, {
-            type: 'bar', plugins: [ChartDataLabels],
+            type: 'bar', 
+            plugins: [ChartDataLabels],
             data: {
                 labels: data.labels,
                 datasets: [
-                    { label: 'Meta', data: data.dMeta, backgroundColor: 'rgba(54, 162, 235, 0.6)' },
-                    { label: 'Real', data: data.dReal, backgroundColor: 'rgba(75, 192, 192, 0.6)' },
-                    { label: 'Gap', data: data.dGap, backgroundColor: 'rgba(255, 99, 132, 0.6)' }
+                    { 
+                        label: 'Meta', 
+                        data: data.dMeta, 
+                        backgroundColor: '#4a69e2', 
+                        borderColor: '#192A56',
+                        borderWidth: 1
+                    },
+                    { 
+                        label: 'Real', 
+                        data: data.dReal, 
+                        backgroundColor: '#28a745',
+                        borderColor: '#1e7e34',
+                        borderWidth: 1
+                    },
+                    { 
+                        label: 'Gap', 
+                        data: data.dGap, 
+                        backgroundColor: '#dc3545',
+                        borderColor: '#bd2130',
+                        borderWidth: 1
+                    }
                 ]
             },
-            options: { responsive: true, plugins: { datalabels: { anchor: 'end', align: 'top', formatter: v=>v>0?v:'' } } }
+            options: { 
+                responsive: true, 
+                // maintainAspectRatio foi removido para evitar distorção
+                plugins: { 
+                    datalabels: { 
+                        anchor: 'end', 
+                        align: 'top', 
+                        color: '#444',
+                        font: { weight: 'bold' },
+                        formatter: v => v > 0 ? v : '' 
+                    },
+                    legend: { position: 'bottom' }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
         });
     };
+
     metaChartQLP = render('grafico-metas-qlp', criarDataset('meta', 'qlp'), metaChartQLP);
     metaChartPCD = render('grafico-metas-pcd', criarDataset('meta_pcd', 'pcd'), metaChartPCD);
     metaChartJovem = render('grafico-metas-jovem', criarDataset('meta_jovem', 'jovem'), metaChartJovem);
@@ -621,14 +696,17 @@ async function handleMetaSubmit(e) {
         await fetch(`${API_URL}/metas`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                area: metaAreaSelect.value, meta: metaValorInput.value,
-                meta_pcd: metaPCDInput.value, meta_jovem: metaJovemInput.value
+                area: metaAreaSelect.value, 
+                meta: metaValorInput.value,
+                meta_pcd: metaPCDInput.value, 
+                meta_jovem: metaJovemInput.value
             })
         });
         metaSuccessMessage.style.visibility = 'visible';
         setTimeout(() => metaSuccessMessage.style.visibility = 'hidden', 3000);
         metaForm.reset();
-        carregarDadosDashboard(); 
+        
+        carregarDadosDashboard(true); 
     } catch (err) { alert('Erro ao salvar meta.'); } finally { metaSubmitButton.disabled = false; }
 }
 
