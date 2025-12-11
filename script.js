@@ -1,4 +1,4 @@
-// frontend/script.js
+// frontend_G_RH/script.js
 
 // URL da API Backend
 const API_URL = 'https://backend-g-rh.onrender.com';
@@ -10,6 +10,7 @@ let reportTableBodyQLP, reportTableBodyPCD, reportTableBodyJovem;
 let metaChartQLP = null, metaChartPCD = null, metaChartJovem = null;
 let currentPage = 0;
 let listaColaboradoresGlobal = []; 
+let cacheFerias = []; // Guarda dados de férias para exportação
 
 // Dados do Usuário Logado
 const usuarioPerfil = sessionStorage.getItem('usuarioPerfil'); // 'admin' ou 'user'
@@ -34,19 +35,15 @@ function formatarCPF(cpf) {
 
 function formatarDataExcel(valor) {
     if (!valor) return '';
-
-    // 1. Verifica se é formato ISO String
+    // ISO String
     if (typeof valor === 'string' && valor.match(/^\d{4}-\d{2}-\d{2}/)) {
         try {
             const parteData = valor.split('T')[0];
             const [ano, mes, dia] = parteData.split('-');
             return `${dia}/${mes}/${ano}`;
-        } catch (e) {
-            return valor;
-        }
+        } catch (e) { return valor; }
     }
-
-    // 2. Lógica para Serial Number do Excel
+    // Serial Number
     const serial = Number(valor);
     if (isNaN(serial) || serial < 20000) return String(valor);
     try {
@@ -69,24 +66,6 @@ function formatarTempoDeEmpresa(dias) {
         res += `${m} ${m === 1 ? 'mês' : 'meses'}`;
     }
     return (a === 0 && m === 0) ? "Menos de 1 mês" : res;
-}
-
-// ======== FUNÇÕES DE CÁLCULO DE COTA (CORREÇÃO LEI 8.213/91) ========
-function calcularCotaPCD(total) {
-    if (!total || total < 100) return 0;
-    // Até 200 empregados: 2%
-    if (total <= 200) return Math.ceil(total * 0.02);
-    // De 201 a 500: 3%
-    if (total <= 500) return Math.ceil(total * 0.03);
-    // De 501 a 1000: 4%
-    if (total <= 1000) return Math.ceil(total * 0.04);
-    // De 1001 em diante: 5%
-    return Math.ceil(total * 0.05);
-}
-
-function calcularCotaAprendiz(total) {
-    if (!total) return 0;
-    return Math.ceil(total * 0.05);
 }
 
 // ======== SETUP DO DASHBOARD ========
@@ -145,7 +124,6 @@ function setupDashboard() {
     restaurarAbaAtiva();
 }
 
-// Lógica do Menu Mobile
 function setupMobileMenu() {
     const btnMenu = document.getElementById('btn-menu-burger');
     const btnClose = document.getElementById('btn-close-sidebar');
@@ -176,12 +154,13 @@ function setupNavigation() {
     const navs = {
         'visao-geral': document.getElementById('nav-visao-geral'),
         'gestao': document.getElementById('nav-painel-gestao'),
-        'graficos': document.getElementById('nav-graficos')
+        'graficos': document.getElementById('nav-graficos'),
+        'ferias': document.getElementById('nav-ferias')
     };
     Object.keys(navs).forEach(key => {
         if(navs[key]) navs[key].addEventListener('click', (e) => {
             e.preventDefault();
-            if (usuarioPerfil === 'user' && key !== 'visao-geral') {
+            if (usuarioPerfil === 'user' && (key === 'gestao' || key === 'graficos')) {
                 alert('Acesso restrito a administradores.');
                 return;
             }
@@ -200,7 +179,8 @@ function trocarAba(aba) {
     const contents = {
         'visao-geral': document.getElementById('visao-geral-content'),
         'gestao': document.getElementById('gestao-content'),
-        'graficos': document.getElementById('graficos-content')
+        'graficos': document.getElementById('graficos-content'),
+        'ferias': document.getElementById('ferias-content')
     };
     for (let key in contents) {
         if (contents[key]) contents[key].style.display = (key === aba) ? 'block' : 'none';
@@ -215,11 +195,12 @@ function trocarAba(aba) {
         if (aba === 'gestao') carregarDadosDashboard(); 
         if (aba === 'graficos') carregarDadosDashboard(true);
     }
+    if (aba === 'ferias') carregarDadosFerias();
 }
 
 function restaurarAbaAtiva() {
     let activeTab = sessionStorage.getItem('activeTab') || 'visao-geral';
-    if (usuarioPerfil === 'user') activeTab = 'visao-geral';
+    if (usuarioPerfil === 'user' && (activeTab === 'gestao' || activeTab === 'graficos')) activeTab = 'visao-geral';
     trocarAba(activeTab);
     if(activeTab === 'visao-geral') carregarColaboradores();
 }
@@ -309,7 +290,6 @@ async function fetchColaboradores() {
     }
 }
 
-// ======== ESTRUTURA ORIGINAL RECUPERADA ========
 function criarCardColaborador(colab, index) {
     const status = colab.SITUACAO || 'Indefinido';
     const statusClass = status.includes('AFASTADO') ? 'status-afastado' : (status.includes('DESLIGADO') ? 'status-desligados' : 'status-ativo');
@@ -324,27 +304,24 @@ function criarCardColaborador(colab, index) {
     else if(classif === 'PREPARAR') classificacaoClass = 'classificacao-preparar';
 
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
-
     const v = (val) => val || '';
 
     const nome = v(colab.NOME);
     const cpf = formatarCPF(colab.CPF);
-    const funcao = v(colab['CARGO_ATUAL']);
+    const funcao = v(colab['CARGO ATUAL']);
     const area = v(colab.ATIVIDADE);
-    const tempoEmpresa = formatarTempoDeEmpresa(colab['TEMPO_DE_EMPRESA']);
+    const tempoEmpresa = formatarTempoDeEmpresa(colab['TEMPO DE EMPRESA']);
     const escolaridade = v(colab.ESCOLARIDADE);
     const salario = formatarSalario(colab.SALARIO);
     const pcd = colab.PCD || 'NÃO';
     const telefone = v(colab.CONTATO);
-    const telEmergencia = v(colab['CONT_FAMILIAR']);
+    const telEmergencia = v(colab['CONT FAMILIAR']);
     const turno = v(colab.TURNO);
     const lider = v(colab.LIDER);
     const ultimaFuncao = v(colab.CARGO_ANTIGO);
-    
-    const dataPromocao = formatarDataExcel(colab['DATA_DA_PROMOCAO']);
+    const dataPromocao = formatarDataExcel(colab['DATA DA PROMOCAO']);
     const classificacao = colab.CLASSIFICACAO || 'SEM';
 
-    // Estrutura Original com os campos vazios mantidos
     return `
         <div class="employee-card ${statusClass}">
             <div class="card-header">
@@ -386,7 +363,6 @@ function criarCardColaborador(colab, index) {
     `;
 }
 
-// ======== COMPRIMIR IMAGEM ========
 function compressImage(file, maxWidth, quality) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -416,7 +392,6 @@ function compressImage(file, maxWidth, quality) {
     });
 }
 
-// ======== UPLOAD DE FOTO ========
 async function uploadFotoPerfil(file, cpf) {
     try {
         const resizedBase64 = await compressImage(file, 300, 0.7);
@@ -445,7 +420,6 @@ window.handleFileSelect = function(input, cpf) {
     }
 };
 
-// ======== FUNÇÃO DO MODAL ========
 function abrirModalDetalhes(index) {
     const colab = listaColaboradoresGlobal[index];
     if (!colab) return;
@@ -474,11 +448,10 @@ function abrirModalDetalhes(index) {
 
     grid.innerHTML = `
         <div class="modal-item"><strong>CPF</strong> <span>${formatarCPF(colab.CPF)}</span></div>
-        <div class="modal-item"><strong>Matrícula</strong> <span>${colab.MATRICULA || '-'}</span></div>
-        <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO_ATUAL'] || ''}</span></div>
+        <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO ATUAL'] || ''}</span></div>
         <div class="modal-item"><strong>Área</strong> <span>${colab.ATIVIDADE || ''}</span></div>
         <div class="modal-item"><strong>Salário</strong> <span>${formatarSalario(colab.SALARIO)}</span></div>
-        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(colab['TEMPO_DE_EMPRESA'])}</span></div>
+        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(colab['TEMPO DE EMPRESA'])}</span></div>
         <div class="modal-item"><strong>Escolaridade</strong> <span>${colab.ESCOLARIDADE || ''}</span></div>
         <div class="modal-item"><strong>PCD</strong> <span>${colab.PCD || 'NÃO'}</span></div>
         <div class="modal-item"><strong>Líder</strong> <span>${colab.LIDER || ''}</span></div>
@@ -507,9 +480,13 @@ function gerarHtmlPDI(colab) {
             const status = colab[`STATUS_${i}`] || 'Pendente';
             const situacao = colab[`SITUACAO_DA_ACAO_${i}`] || '-';
             const acao = colab[`O_QUE_FAZER_${i}`] || '-';
+            
+            // --- AQUI ESTAVAM FALTANDO AS VARIÁVEIS NO HTML ---
             const motivo = colab[`POR_QUE_FAZER_${i}`] || '-';
             const quem = colab[`QUE_PODE_ME_AJUDAR_${i}`] || '-';
             const como = colab[`COMO_VOU_FAZER_${i}`] || '-';
+            // --------------------------------------------------
+            
             const dataFim = formatarDataExcel(colab[`DATA_DE_TERMINO_${i}`]);
 
             html += `
@@ -518,9 +495,10 @@ function gerarHtmlPDI(colab) {
                     <div class="pdi-details">
                         <div class="pdi-item"><strong>Situação Atual</strong> <span>${situacao}</span></div>
                         <div class="pdi-item"><strong>Ação (O que fazer)</strong> <span>${acao}</span></div>
+                        
                         <div class="pdi-item"><strong>Motivo (Por que)</strong> <span>${motivo}</span></div>
                         <div class="pdi-item"><strong>Apoio (Quem ajuda)</strong> <span>${quem}</span></div>
-                        <div class="pdi-item"><strong>Método (Como)</strong> <span>${como}</span></div>
+                        <div class="pdi-item"><strong>Como vou fazer</strong> <span>${como}</span></div>
                         <div class="pdi-item"><strong>Prazo</strong> <span>${dataFim}</span></div>
                         <div class="pdi-item"><strong>Status</strong> <span>${status}</span></div>
                     </div>
@@ -542,68 +520,51 @@ window.onclick = function(event) {
     if (event.target == modal) modal.style.display = "none";
 };
 
-// ======== FUNÇÕES DE GESTÃO E DASHBOARD ========
+// ==========================================
+// 📊 DASHBOARD (CORREÇÃO DO ERRO DE LEITURA)
+// ==========================================
 async function carregarDadosDashboard(renderizarGraficos = false) {
     if (usuarioPerfil === 'user') return; 
     try {
         const res = await fetch(`${API_URL}/dashboard-stats`);
+        if (!res.ok) throw new Error(`Erro na API: ${res.status}`);
         
-        if (!res.ok) {
-            throw new Error(`Erro na API: ${res.status}`);
-        }
-
+        // CORREÇÃO: Removemos a normalização total do objeto 'data'
+        // Isso evita que a lista de áreas (Array) fique diferente das chaves do objeto (Stats)
         let data = await res.json();
         
-        // Normaliza valores (incluindo o array de areas)
-        data = normalizarObjeto(data);
+        if(!data || !data.stats || !data.areas) return;
 
         const { stats, totalAtivos, areas } = data;
-
-        // --- CORREÇÃO PRINCIPAL: Normalizar as chaves do objeto STATS ---
-        // O backend manda as chaves "cruas" (ex: "Logistica"), mas o array 'areas'
-        // foi normalizado para "LOGÍSTICA". Isso causava o erro de "undefined".
-        const statsNormalizado = {};
-        if (stats) {
-            Object.keys(stats).forEach(key => {
-                const keyNorm = normalizarTexto(key);
-                statsNormalizado[keyNorm] = stats[key];
-            });
-        }
-        
-        renderizarTabelasRelatorio(statsNormalizado, areas, totalAtivos);
-        
-        if (renderizarGraficos) renderizarGraficosChartJS(statsNormalizado, areas);
-
-    } catch (e) { 
-        console.error("Erro dashboard stats", e); 
-    }
+        renderizarTabelasRelatorio(stats, areas, totalAtivos);
+        if (renderizarGraficos) renderizarGraficosChartJS(stats, areas);
+    } catch (e) { console.error("Erro dashboard stats", e); }
 }
 
 function renderizarTabelasRelatorio(stats, areas, totalAtivos) {
     if(!reportTableBodyQLP) return;
-    
-    // CORREÇÃO: Usar as novas funções de cálculo
-    const cotaPCD = calcularCotaPCD(totalAtivos);
-    const cotaJovem = calcularCotaAprendiz(totalAtivos);
-
-    // Atualiza os indicadores na tela
-    const elPCD = document.getElementById('quota-pcd-value');
-    if(elPCD) elPCD.textContent = cotaPCD;
-    
-    const elJovem = document.getElementById('quota-jovem-value');
-    if(elJovem) elJovem.textContent = cotaJovem;
-
     let htmlQLP = '', htmlPCD = '', htmlJovem = '';
     
-    areas.forEach(a => {
-        const s = stats[a];
-        if (!s) return; 
-
-        htmlQLP += `<tr><td>${a}</td><td>${s.meta.meta || 0}</td><td>${s.qlp}</td></tr>`;
-        if(s.meta.meta_pcd || s.pcd > 0) htmlPCD += `<tr><td>${a}</td><td>${s.meta.meta_pcd || 0}</td><td>${s.pcd}</td></tr>`;
-        if(s.meta.meta_jovem || s.jovem > 0) htmlJovem += `<tr><td>${a}</td><td>${s.meta.meta_jovem || 0}</td><td>${s.jovem}</td></tr>`;
-    });
+    const quotaPCD = document.getElementById('quota-pcd-value');
+    if(quotaPCD) quotaPCD.textContent = Math.ceil(totalAtivos * (totalAtivos > 1000 ? 0.05 : 0.02));
     
+    const quotaJovem = document.getElementById('quota-jovem-value');
+    if(quotaJovem) quotaJovem.textContent = Math.ceil(totalAtivos * 0.05);
+    
+    areas.forEach(a => {
+        // PROTEÇÃO: Se a área não existir no stats, usa um objeto vazio para não travar
+        const s = stats[a] || { qlp: 0, pcd: 0, jovem: 0, meta: {} };
+        const meta = s.meta || {}; // Proteção extra para meta
+
+        htmlQLP += `<tr><td>${a}</td><td>${meta.meta || 0}</td><td>${s.qlp}</td></tr>`;
+        
+        if(meta.meta_pcd || s.pcd > 0) 
+            htmlPCD += `<tr><td>${a}</td><td>${meta.meta_pcd || 0}</td><td>${s.pcd}</td></tr>`;
+        
+        if(meta.meta_jovem || s.jovem > 0) 
+            htmlJovem += `<tr><td>${a}</td><td>${meta.meta_jovem || 0}</td><td>${s.jovem}</td></tr>`;
+    });
+
     reportTableBodyQLP.innerHTML = htmlQLP;
     reportTableBodyPCD.innerHTML = htmlPCD || '<tr><td colspan="3">Vazio</td></tr>';
     reportTableBodyJovem.innerHTML = htmlJovem || '<tr><td colspan="3">Vazio</td></tr>';
@@ -613,77 +574,36 @@ function renderizarGraficosChartJS(stats, areas) {
     const criarDataset = (keyMeta, keyReal) => {
         const labels = [], dMeta = [], dReal = [], dGap = [];
         areas.forEach(a => {
-            const s = stats[a];
-            if (!s) return;
-
-            const m = s.meta[keyMeta] || 0;
+            // PROTEÇÃO: Evita crash se stats[a] for undefined
+            const s = stats[a] || { meta: {} };
+            const m = (s.meta && s.meta[keyMeta]) || 0;
             const r = s[keyReal] || 0;
+            
             if (m > 0 || r > 0) {
-                labels.push(a); 
-                dMeta.push(m); 
-                dReal.push(r); 
-                dGap.push(Math.max(0, m - r));
+                labels.push(a); dMeta.push(m); dReal.push(r); dGap.push(Math.max(0, m - r));
             }
         });
         return { labels, dMeta, dReal, dGap };
     };
-
     const render = (id, data, instance) => {
-        const canvas = document.getElementById(id);
-        if(!canvas) return null;
+        const ctxElement = document.getElementById(id);
+        if(!ctxElement) return null;
         
-        const ctx = canvas.getContext('2d');
-        if(instance) instance.destroy(); 
-        
+        const ctx = ctxElement.getContext('2d');
+        if(instance) instance.destroy();
         return new Chart(ctx, {
-            type: 'bar', 
-            plugins: [ChartDataLabels],
+            type: 'bar', plugins: [ChartDataLabels],
             data: {
                 labels: data.labels,
                 datasets: [
-                    { 
-                        label: 'Meta', 
-                        data: data.dMeta, 
-                        backgroundColor: '#4a69e2', 
-                        borderColor: '#192A56',
-                        borderWidth: 1
-                    },
-                    { 
-                        label: 'Real', 
-                        data: data.dReal, 
-                        backgroundColor: '#28a745',
-                        borderColor: '#1e7e34',
-                        borderWidth: 1
-                    },
-                    { 
-                        label: 'Gap', 
-                        data: data.dGap, 
-                        backgroundColor: '#dc3545',
-                        borderColor: '#bd2130',
-                        borderWidth: 1
-                    }
+                    { label: 'Meta', data: data.dMeta, backgroundColor: 'rgba(54, 162, 235, 0.6)' },
+                    { label: 'Real', data: data.dReal, backgroundColor: 'rgba(75, 192, 192, 0.6)' },
+                    { label: 'Gap', data: data.dGap, backgroundColor: 'rgba(255, 99, 132, 0.6)' }
                 ]
             },
-            options: { 
-                responsive: true, 
-                // maintainAspectRatio foi removido para evitar distorção
-                plugins: { 
-                    datalabels: { 
-                        anchor: 'end', 
-                        align: 'top', 
-                        color: '#444',
-                        font: { weight: 'bold' },
-                        formatter: v => v > 0 ? v : '' 
-                    },
-                    legend: { position: 'bottom' }
-                },
-                scales: {
-                    y: { beginAtZero: true }
-                }
-            }
+            options: { responsive: true, plugins: { datalabels: { anchor: 'end', align: 'top', formatter: v=>v>0?v:'' } } }
         });
     };
-
     metaChartQLP = render('grafico-metas-qlp', criarDataset('meta', 'qlp'), metaChartQLP);
     metaChartPCD = render('grafico-metas-pcd', criarDataset('meta_pcd', 'pcd'), metaChartPCD);
     metaChartJovem = render('grafico-metas-jovem', criarDataset('meta_jovem', 'jovem'), metaChartJovem);
@@ -696,18 +616,194 @@ async function handleMetaSubmit(e) {
         await fetch(`${API_URL}/metas`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                area: metaAreaSelect.value, 
-                meta: metaValorInput.value,
-                meta_pcd: metaPCDInput.value, 
-                meta_jovem: metaJovemInput.value
+                area: metaAreaSelect.value, meta: metaValorInput.value,
+                meta_pcd: metaPCDInput.value, meta_jovem: metaJovemInput.value
             })
         });
         metaSuccessMessage.style.visibility = 'visible';
         setTimeout(() => metaSuccessMessage.style.visibility = 'hidden', 3000);
         metaForm.reset();
-        
-        carregarDadosDashboard(true); 
+        carregarDadosDashboard(); 
     } catch (err) { alert('Erro ao salvar meta.'); } finally { metaSubmitButton.disabled = false; }
+}
+
+// ==========================================
+// 🏖️ LÓGICA DE FÉRIAS
+// ==========================================
+
+const formFerias = document.getElementById('form-solicitar-ferias');
+if (formFerias) {
+    formFerias.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const inicio = document.getElementById('ferias-inicio').value;
+        const fim = document.getElementById('ferias-fim').value;
+
+        if (inicio > fim) return alert('A data de fim deve ser depois do início.');
+
+        if(!confirm(`Confirma solicitação de férias de ${formatarDataExcel(inicio)} até ${formatarDataExcel(fim)}?`)) return;
+
+        try {
+            const res = await fetch(`${API_URL}/ferias/solicitar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cpf: sessionStorage.getItem('usuarioCPF'),
+                    data_inicio: inicio,
+                    data_fim: fim
+                })
+            });
+            const data = await res.json();
+            if(data.sucesso) {
+                alert('Solicitação enviada com sucesso!');
+                carregarDadosFerias();
+            } else {
+                alert('Erro: ' + data.mensagem);
+            }
+        } catch(err) { console.error(err); alert('Erro de conexão'); }
+    });
+}
+
+async function carregarDadosFerias() {
+    const usuarioNome = sessionStorage.getItem('usuarioNome');
+    const usuarioPerfil = sessionStorage.getItem('usuarioPerfil');
+    const usuarioCPF = sessionStorage.getItem('usuarioCPF');
+    const cpfLimpo = String(usuarioCPF).replace(/\D/g, '');
+
+    const btnExport = document.getElementById('btn-exportar-ferias');
+    
+    try {
+        const params = new URLSearchParams({
+            cpf: cpfLimpo,
+            perfil: usuarioPerfil,
+            nome_usuario: usuarioNome
+        });
+
+        const res = await fetch(`${API_URL}/ferias/listar?${params}`);
+        const json = await res.json();
+        
+        if (!json.sucesso) throw new Error(json.error);
+
+        const dados = json.dados;
+        cacheFerias = dados;
+
+        const tabelaAprovacao = document.getElementById('lista-aprovacao-body');
+        const painelLider = document.getElementById('area-aprovacao-lider');
+        const tabelaHistorico = document.getElementById('lista-ferias-body');
+
+        if(tabelaAprovacao) tabelaAprovacao.innerHTML = '';
+        if(tabelaHistorico) tabelaHistorico.innerHTML = '';
+
+        let souLiderDeAlguem = false;
+
+        dados.forEach(item => {
+            const dataIni = formatarDataExcel(item.data_inicio);
+            const dataFim = formatarDataExcel(item.data_fim);
+            
+            let badgeClass = '';
+            if(item.status === 'APROVADO') badgeClass = 'status-ativo';
+            else if(item.status === 'REJEITADO') badgeClass = 'status-desligados';
+            else badgeClass = 'status-afastado';
+
+            const badge = `<span class="status-badge ${badgeClass}">${item.status}</span>`;
+            const ehMinha = String(item.cpf) === String(cpfLimpo);
+            
+            if(tabelaHistorico) {
+                tabelaHistorico.innerHTML += `
+                    <tr>
+                        <td>${item.nome} ${ehMinha ? '(Eu)' : ''}</td>
+                        <td>${dataIni}</td>
+                        <td>${dataFim}</td>
+                        <td>${badge}</td>
+                    </tr>
+                `;
+            }
+
+            const liderDaSolicitacao = (item.lider || '').toUpperCase();
+            const meuNome = (usuarioNome || '').toUpperCase();
+
+            // Verifica se sou o líder e não é minha própria solicitação
+            if (liderDaSolicitacao.includes(meuNome) && !ehMinha && item.status === 'PENDENTE') {
+                souLiderDeAlguem = true;
+                if(tabelaAprovacao) {
+                    tabelaAprovacao.innerHTML += `
+                        <tr>
+                            <td><strong>${item.nome}</strong></td>
+                            <td>${dataIni}</td>
+                            <td>${dataFim}</td>
+                            <td>${item.dias_totais} dias</td>
+                            <td>
+                                <button onclick="gerenciarFerias(${item.id}, 'APROVADO')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">✔</button>
+                                <button onclick="gerenciarFerias(${item.id}, 'REJEITADO')" style="background:#dc3545; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer; margin-left:5px;">✖</button>
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+        });
+
+        if (painelLider) {
+            if (souLiderDeAlguem || usuarioPerfil === 'admin') {
+                painelLider.style.display = 'block';
+                if(btnExport) btnExport.style.display = 'inline-block';
+            } else {
+                painelLider.style.display = 'none';
+            }
+        }
+
+        if (tabelaAprovacao && tabelaAprovacao.innerHTML === '') {
+            tabelaAprovacao.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">Nenhuma solicitação pendente para sua equipe.</td></tr>';
+        }
+
+    } catch (e) {
+        console.error(e);
+        // alert('Erro ao carregar férias.');
+    }
+}
+
+async function gerenciarFerias(id, acao) {
+    if(!confirm(`Deseja realmente definir como ${acao}?`)) return;
+
+    try {
+        const res = await fetch(`${API_URL}/ferias/gerenciar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id_solicitacao: id,
+                acao: acao,
+                nome_lider: sessionStorage.getItem('usuarioNome')
+            })
+        });
+        const data = await res.json();
+        
+        if (data.sucesso) {
+            alert(data.mensagem);
+            carregarDadosFerias();
+        } else {
+            alert('❌ ERRO: ' + data.mensagem);
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Erro de conexão.');
+    }
+}
+
+function exportarRelatorioFerias() {
+    if(!cacheFerias.length) return alert("Nada para exportar");
+    
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Colaborador;Lider;Data Inicio;Data Fim;Dias;Status\n";
+
+    cacheFerias.forEach(row => {
+        csvContent += `${row.nome};${row.lider};${formatarDataExcel(row.data_inicio)};${formatarDataExcel(row.data_fim)};${row.dias_totais};${row.status}\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "relatorio_ferias.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 ;(function() {
