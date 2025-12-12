@@ -1,20 +1,29 @@
 // frontend_G_RH/script.js
 
-// URL da API Backend
 const API_URL = 'https://backend-g-rh.onrender.com';
 
-// Variáveis Globais de UI
+// Variáveis Globais
 let dashboardContainer, loadingIndicator, searchBar, filterStatus, filterArea, filterLider, filterClassificacao, loadMoreButton;
 let metaForm, metaAreaSelect, metaValorInput, metaPCDInput, metaJovemInput, metaSubmitButton, metaSuccessMessage;
 let reportTableBodyQLP, reportTableBodyPCD, reportTableBodyJovem;
 let metaChartQLP = null, metaChartPCD = null, metaChartJovem = null;
 let currentPage = 0;
 let listaColaboradoresGlobal = []; 
-let cacheFerias = []; // Guarda dados de férias para exportação
+let cacheFerias = [];
 
-// Dados do Usuário Logado
-const usuarioPerfil = sessionStorage.getItem('usuarioPerfil'); // 'admin' ou 'user'
-const usuarioCPF = sessionStorage.getItem('usuarioCPF');
+// ==========================================
+// 🔐 RECUPERA DADOS DA SESSÃO SEGURA (COOKIE)
+// ==========================================
+const usuarioLogado = Sessao.ler();
+
+if (!usuarioLogado) {
+    // Se não tiver cookie válido ou se foi adulterado, manda pro login
+    window.location.href = 'login.html';
+}
+
+const usuarioPerfil = usuarioLogado.perfil; // 'admin' ou 'user'
+const usuarioCPF = usuarioLogado.cpf;
+const usuarioNome = usuarioLogado.nome;
 
 // ======== FUNÇÕES DE FORMATAÇÃO ========
 function formatarSalario(valor) {
@@ -35,7 +44,6 @@ function formatarCPF(cpf) {
 
 function formatarDataExcel(valor) {
     if (!valor) return '';
-    // ISO String
     if (typeof valor === 'string' && valor.match(/^\d{4}-\d{2}-\d{2}/)) {
         try {
             const parteData = valor.split('T')[0];
@@ -43,7 +51,6 @@ function formatarDataExcel(valor) {
             return `${dia}/${mes}/${ano}`;
         } catch (e) { return valor; }
     }
-    // Serial Number
     const serial = Number(valor);
     if (isNaN(serial) || serial < 20000) return String(valor);
     try {
@@ -54,13 +61,22 @@ function formatarDataExcel(valor) {
 }
 
 function formatarTempoDeEmpresa(dias) {
-    // Converte para inteiro garantindo base 10
     const n = parseInt(dias, 10);
-    
-    // Se não for número ou for 0/negativo, retorna texto padrão
+    // Se vier vazio, negativo ou texto não numérico
     if (isNaN(n) || n <= 0) return 'Recente'; 
     
-    // Cálculo: Ano = 365 dias, Mês = 30 dias
+    // Se o número for muito grande (tipo data serial 45000), 
+    // significa que a planilha está mandando DATA em vez de DIAS.
+    // Vamos tratar isso para não mostrar 1902.
+    if (n > 20000) {
+        // Tenta calcular diferença de hoje
+        const hoje = new Date();
+        const dataAdmissao = new Date((n - 25569) * 86400000);
+        const diffTime = Math.abs(hoje - dataAdmissao);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        return formatarTempoDeEmpresa(diffDays); // Chama recursivo com os dias certos
+    }
+
     const anos = Math.floor(n / 365);
     const diasRestantes = n % 365;
     const meses = Math.floor(diasRestantes / 30);
@@ -69,9 +85,7 @@ function formatarTempoDeEmpresa(dias) {
     if (anos > 0) res.push(`${anos} ${anos === 1 ? 'ano' : 'anos'}`);
     if (meses > 0) res.push(`${meses} ${meses === 1 ? 'mês' : 'meses'}`);
     
-    // Se o resultado for vazio (ex: 15 dias), mostra "Menos de 1 mês"
     if (res.length === 0) return "Menos de 1 mês";
-    
     return res.join(' e ');
 }
 
@@ -99,9 +113,9 @@ function setupDashboard() {
     reportTableBodyPCD = document.getElementById('report-table-body-pcd');
     reportTableBodyJovem = document.getElementById('report-table-body-jovem');
 
-    // Inicializar Menu Mobile
     setupMobileMenu();
 
+    // Lógica de visualização baseada no PERFIL descriptografado
     if (usuarioPerfil === 'user') {
         const filterContainer = document.querySelector('.filter-container');
         if (filterContainer) filterContainer.style.display = 'none';
@@ -141,7 +155,6 @@ function setupMobileMenu() {
         sidebar.classList.toggle('active');
         overlay.classList.toggle('active');
     }
-
     function closeMenu() {
         sidebar.classList.remove('active');
         overlay.classList.remove('active');
@@ -177,8 +190,7 @@ function setupNavigation() {
     const navSair = document.getElementById('nav-sair');
     if (navSair) navSair.addEventListener('click', (e) => {
         e.preventDefault();
-        sessionStorage.clear();
-        window.location.href = 'login.html';
+        Sessao.limpar(); // Usa a função segura de logout
     });
 }
 
@@ -314,7 +326,7 @@ function criarCardColaborador(colab, index) {
     const v = (val) => val || '';
 
     // ============================================
-    // CORREÇÃO: Lê apenas TEMPO_DE_EMPRESA e converte dias em texto
+    // CORREÇÃO DATA / TEMPO
     // ============================================
     const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
     const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
@@ -386,12 +398,10 @@ function compressImage(file, maxWidth, quality) {
                 const canvas = document.createElement('canvas');
                 let width = img.width;
                 let height = img.height;
-
                 if (width > maxWidth) {
                     height = Math.round((height * maxWidth) / width);
                     width = maxWidth;
                 }
-
                 canvas.width = width;
                 canvas.height = height;
                 const ctx = canvas.getContext('2d');
@@ -444,10 +454,9 @@ function abrirModalDetalhes(index) {
     const status = colab.SITUACAO || '';
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
     
-    // ============================================
-    // CORREÇÃO: Lê apenas TEMPO_DE_EMPRESA no Modal também
-    // ============================================
+    // Ajuste tempo modal
     const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
+    const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
 
     header.innerHTML = `
         <div class="avatar-upload-wrapper">
@@ -468,7 +477,7 @@ function abrirModalDetalhes(index) {
         <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO_ATUAL'] || ''}</span></div>
         <div class="modal-item"><strong>Área</strong> <span>${colab.ATIVIDADE || ''}</span></div>
         <div class="modal-item"><strong>Salário</strong> <span>${formatarSalario(colab.SALARIO)}</span></div>
-        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(tempoEmpresaRaw)}</span></div>
+        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${tempoEmpresa}</span></div>
         <div class="modal-item"><strong>Escolaridade</strong> <span>${colab.ESCOLARIDADE || ''}</span></div>
         <div class="modal-item"><strong>PCD</strong> <span>${colab.PCD || 'NÃO'}</span></div>
         <div class="modal-item"><strong>Líder</strong> <span>${colab.LIDER || ''}</span></div>
@@ -536,7 +545,7 @@ window.onclick = function(event) {
 };
 
 // ==========================================
-// 📊 DASHBOARD (CORREÇÃO DO ERRO DE LEITURA)
+// 📊 DASHBOARD
 // ==========================================
 async function carregarDadosDashboard(renderizarGraficos = false) {
     if (usuarioPerfil === 'user') return; 
@@ -545,7 +554,6 @@ async function carregarDadosDashboard(renderizarGraficos = false) {
         if (!res.ok) throw new Error(`Erro na API: ${res.status}`);
         
         let data = await res.json();
-        
         if(!data || !data.stats || !data.areas) return;
 
         const { stats, totalAtivos, areas } = data;
@@ -567,12 +575,9 @@ function renderizarTabelasRelatorio(stats, areas, totalAtivos) {
     areas.forEach(a => {
         const s = stats[a] || { qlp: 0, pcd: 0, jovem: 0, meta: {} };
         const meta = s.meta || {}; 
-
         htmlQLP += `<tr><td>${a}</td><td>${meta.meta || 0}</td><td>${s.qlp}</td></tr>`;
-        
         if(meta.meta_pcd || s.pcd > 0) 
             htmlPCD += `<tr><td>${a}</td><td>${meta.meta_pcd || 0}</td><td>${s.pcd}</td></tr>`;
-        
         if(meta.meta_jovem || s.jovem > 0) 
             htmlJovem += `<tr><td>${a}</td><td>${meta.meta_jovem || 0}</td><td>${s.jovem}</td></tr>`;
     });
@@ -589,7 +594,6 @@ function renderizarGraficosChartJS(stats, areas) {
             const s = stats[a] || { meta: {} };
             const m = (s.meta && s.meta[keyMeta]) || 0;
             const r = s[keyReal] || 0;
-            
             if (m > 0 || r > 0) {
                 labels.push(a); dMeta.push(m); dReal.push(r); dGap.push(Math.max(0, m - r));
             }
@@ -599,7 +603,6 @@ function renderizarGraficosChartJS(stats, areas) {
     const render = (id, data, instance) => {
         const ctxElement = document.getElementById(id);
         if(!ctxElement) return null;
-        
         const ctx = ctxElement.getContext('2d');
         if(instance) instance.destroy();
         return new Chart(ctx, {
@@ -639,9 +642,8 @@ async function handleMetaSubmit(e) {
 }
 
 // ==========================================
-// 🏖️ LÓGICA DE FÉRIAS
+// 🏖️ FÉRIAS
 // ==========================================
-
 const formFerias = document.getElementById('form-solicitar-ferias');
 if (formFerias) {
     formFerias.addEventListener('submit', async (e) => {
@@ -650,18 +652,13 @@ if (formFerias) {
         const fim = document.getElementById('ferias-fim').value;
 
         if (inicio > fim) return alert('A data de fim deve ser depois do início.');
-
         if(!confirm(`Confirma solicitação de férias de ${formatarDataExcel(inicio)} até ${formatarDataExcel(fim)}?`)) return;
 
         try {
             const res = await fetch(`${API_URL}/ferias/solicitar`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    cpf: sessionStorage.getItem('usuarioCPF'),
-                    data_inicio: inicio,
-                    data_fim: fim
-                })
+                body: JSON.stringify({ cpf: usuarioCPF, data_inicio: inicio, data_fim: fim })
             });
             const data = await res.json();
             if(data.sucesso) {
@@ -675,11 +672,7 @@ if (formFerias) {
 }
 
 async function carregarDadosFerias() {
-    const usuarioNome = sessionStorage.getItem('usuarioNome');
-    const usuarioPerfil = sessionStorage.getItem('usuarioPerfil');
-    const usuarioCPF = sessionStorage.getItem('usuarioCPF');
     const cpfLimpo = String(usuarioCPF).replace(/\D/g, '');
-
     const btnExport = document.getElementById('btn-exportar-ferias');
     
     try {
@@ -688,7 +681,6 @@ async function carregarDadosFerias() {
             perfil: usuarioPerfil,
             nome_usuario: usuarioNome
         });
-
         const res = await fetch(`${API_URL}/ferias/listar?${params}`);
         const json = await res.json();
         
@@ -719,14 +711,7 @@ async function carregarDadosFerias() {
             const ehMinha = String(item.cpf) === String(cpfLimpo);
             
             if(tabelaHistorico) {
-                tabelaHistorico.innerHTML += `
-                    <tr>
-                        <td>${item.nome} ${ehMinha ? '(Eu)' : ''}</td>
-                        <td>${dataIni}</td>
-                        <td>${dataFim}</td>
-                        <td>${badge}</td>
-                    </tr>
-                `;
+                tabelaHistorico.innerHTML += `<tr><td>${item.nome} ${ehMinha ? '(Eu)' : ''}</td><td>${dataIni}</td><td>${dataFim}</td><td>${badge}</td></tr>`;
             }
 
             const liderDaSolicitacao = (item.lider || '').toUpperCase();
@@ -759,54 +744,36 @@ async function carregarDadosFerias() {
                 painelLider.style.display = 'none';
             }
         }
-
         if (tabelaAprovacao && tabelaAprovacao.innerHTML === '') {
             tabelaAprovacao.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">Nenhuma solicitação pendente para sua equipe.</td></tr>';
         }
 
-    } catch (e) {
-        console.error(e);
-        // alert('Erro ao carregar férias.');
-    }
+    } catch (e) { console.error(e); }
 }
 
 async function gerenciarFerias(id, acao) {
     if(!confirm(`Deseja realmente definir como ${acao}?`)) return;
-
     try {
         const res = await fetch(`${API_URL}/ferias/gerenciar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                id_solicitacao: id,
-                acao: acao,
-                nome_lider: sessionStorage.getItem('usuarioNome')
+                id_solicitacao: id, acao: acao, nome_lider: usuarioNome
             })
         });
         const data = await res.json();
-        
         if (data.sucesso) {
-            alert(data.mensagem);
-            carregarDadosFerias();
-        } else {
-            alert('❌ ERRO: ' + data.mensagem);
-        }
-    } catch (e) {
-        console.error(e);
-        alert('Erro de conexão.');
-    }
+            alert(data.mensagem); carregarDadosFerias();
+        } else { alert('❌ ERRO: ' + data.mensagem); }
+    } catch (e) { console.error(e); alert('Erro de conexão.'); }
 }
 
 function exportarRelatorioFerias() {
     if(!cacheFerias.length) return alert("Nada para exportar");
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Colaborador;Lider;Data Inicio;Data Fim;Dias;Status\n";
-
+    let csvContent = "data:text/csv;charset=utf-8,Colaborador;Lider;Data Inicio;Data Fim;Dias;Status\n";
     cacheFerias.forEach(row => {
         csvContent += `${row.nome};${row.lider};${formatarDataExcel(row.data_inicio)};${formatarDataExcel(row.data_fim)};${row.dias_totais};${row.status}\n`;
     });
-
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -817,9 +784,6 @@ function exportarRelatorioFerias() {
 }
 
 ;(function() {
-    if (sessionStorage.getItem('usuarioLogado') !== 'true') window.location.href = 'login.html';
-    else {
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupDashboard);
-        else setupDashboard();
-    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupDashboard);
+    else setupDashboard();
 })();

@@ -383,3 +383,104 @@ if (typeof module !== 'undefined' && module.exports) {
         normalizarDadosAPI
     };
 }
+/**
+ * Utils.js - Utilitários e Segurança
+ */
+
+// ==========================================
+// 🔐 SISTEMA DE SEGURANÇA E COOKIES
+// ==========================================
+const Sessao = {
+    // Chave interna para "assinar" os dados (Ofuscação simples)
+    _key: "GRH_SECURE_TOKEN_V1",
+
+    // Salva os dados do usuário criptografados em um Cookie
+    salvar: function(usuario) {
+        try {
+            // 1. Cria um objeto pacote com data de validade
+            const pacote = JSON.stringify({
+                dados: usuario,
+                assinatura: this._key,
+                timestamp: new Date().getTime()
+            });
+
+            // 2. Criptografa (Base64) para não ficar legível
+            const token = btoa(encodeURIComponent(pacote));
+
+            // 3. Salva no Cookie (Dura 1 dia)
+            document.cookie = `session_token=${token}; path=/; max-age=86400; SameSite=Strict`;
+            
+            // Limpa o storage antigo para evitar confusão
+            sessionStorage.clear();
+        } catch (e) {
+            console.error("Erro ao salvar sessão:", e);
+        }
+    },
+
+    // Recupera e descriptografa os dados
+    ler: function() {
+        try {
+            // 1. Pega o cookie
+            const cookies = document.cookie.split(';');
+            const tokenCookie = cookies.find(c => c.trim().startsWith('session_token='));
+            
+            if (!tokenCookie) return null;
+
+            const token = tokenCookie.split('=')[1];
+
+            // 2. Descriptografa
+            const jsonStr = decodeURIComponent(atob(token));
+            const pacote = JSON.parse(jsonStr);
+
+            // 3. Valida assinatura
+            if (pacote.assinatura !== this._key) return null;
+
+            return pacote.dados;
+        } catch (e) {
+            return null; // Se alguém mexeu no cookie e quebrou, retorna null (desloga)
+        }
+    },
+
+    limpar: function() {
+        document.cookie = "session_token=; path=/; max-age=0";
+        sessionStorage.clear();
+        window.location.href = 'login.html';
+    }
+};
+
+/**
+ * Normaliza strings com problemas de encoding de acentos
+ */
+function normalizarTexto(texto) {
+    if (typeof texto !== 'string' || !texto) return texto;
+    texto = texto.replace(/\uFFFD/g, '');
+    
+    // Lista resumida de correções comuns
+    const correcoes = {
+        'NAO': 'NÃO', 'OTIMO': 'ÓTIMO', 'ACAO': 'AÇÃO', 'SITUACAO': 'SITUAÇÃO',
+        'FUNCAO': 'FUNÇÃO', 'LIDERANCA': 'LIDERANÇA', 'AREA': 'ÁREA',
+        'ANALISE': 'ANÁLISE', 'COMUNICACAO': 'COMUNICAÇÃO'
+    };
+
+    for (const [erro, correto] of Object.entries(correcoes)) {
+        const regex = new RegExp(`\\b${erro}\\b`, 'g');
+        texto = texto.replace(regex, correto);
+    }
+    return texto;
+}
+
+function normalizarObjeto(obj) {
+    if (Array.isArray(obj)) return obj.map(item => normalizarObjeto(item));
+    if (obj !== null && typeof obj === 'object') {
+        const novoObj = {};
+        for (const [chave, valor] of Object.entries(obj)) {
+            novoObj[chave] = (typeof valor === 'string') ? normalizarTexto(valor) : normalizarObjeto(valor);
+        }
+        return novoObj;
+    }
+    return (typeof obj === 'string') ? normalizarTexto(obj) : obj;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { Sessao, normalizarTexto, normalizarObjeto };
+}
