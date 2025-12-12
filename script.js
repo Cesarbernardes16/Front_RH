@@ -308,18 +308,18 @@ function criarCardColaborador(colab, index) {
 
     const nome = v(colab.NOME);
     const cpf = formatarCPF(colab.CPF);
-    const funcao = v(colab['CARGO ATUAL']);
+    const funcao = v(colab['CARGO_ATUAL']);
     const area = v(colab.ATIVIDADE);
-    const tempoEmpresa = formatarTempoDeEmpresa(colab['TEMPO DE EMPRESA']);
+    const tempoEmpresa = formatarTempoDeEmpresa(colab['TEMPO_DE_EMPRESA']);
     const escolaridade = v(colab.ESCOLARIDADE);
     const salario = formatarSalario(colab.SALARIO);
     const pcd = colab.PCD || 'NÃO';
     const telefone = v(colab.CONTATO);
-    const telEmergencia = v(colab['CONT FAMILIAR']);
+    const telEmergencia = v(colab['CONT_FAMILIAR']);
     const turno = v(colab.TURNO);
     const lider = v(colab.LIDER);
     const ultimaFuncao = v(colab.CARGO_ANTIGO);
-    const dataPromocao = formatarDataExcel(colab['DATA DA PROMOCAO']);
+    const dataPromocao = formatarDataExcel(colab['DATA_DA_PROMOCAO']);
     const classificacao = colab.CLASSIFICACAO || 'SEM';
 
     return `
@@ -448,7 +448,7 @@ function abrirModalDetalhes(index) {
 
     grid.innerHTML = `
         <div class="modal-item"><strong>CPF</strong> <span>${formatarCPF(colab.CPF)}</span></div>
-        <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO ATUAL'] || ''}</span></div>
+        <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO_ATUAL'] || ''}</span></div>
         <div class="modal-item"><strong>Área</strong> <span>${colab.ATIVIDADE || ''}</span></div>
         <div class="modal-item"><strong>Salário</strong> <span>${formatarSalario(colab.SALARIO)}</span></div>
         <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(colab['TEMPO DE EMPRESA'])}</span></div>
