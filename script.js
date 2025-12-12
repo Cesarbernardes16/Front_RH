@@ -54,18 +54,25 @@ function formatarDataExcel(valor) {
 }
 
 function formatarTempoDeEmpresa(dias) {
-    if (!dias) return '';
+    // Converte para inteiro garantindo base 10
     const n = parseInt(dias, 10);
-    if (isNaN(n) || n <= 0) return ''; 
-    const a = Math.floor(n / 365.25);
-    const m = Math.floor((n % 365.25) / 30.44); 
-    let res = '';
-    if (a > 0) res += `${a} ${a === 1 ? 'ano' : 'anos'}`;
-    if (m > 0) {
-        if (a > 0) res += ' e ';
-        res += `${m} ${m === 1 ? 'mês' : 'meses'}`;
-    }
-    return (a === 0 && m === 0) ? "Menos de 1 mês" : res;
+    
+    // Se não for número ou for 0/negativo, retorna texto padrão
+    if (isNaN(n) || n <= 0) return 'Recente'; 
+    
+    // Cálculo: Ano = 365 dias, Mês = 30 dias
+    const anos = Math.floor(n / 365);
+    const diasRestantes = n % 365;
+    const meses = Math.floor(diasRestantes / 30);
+    
+    let res = [];
+    if (anos > 0) res.push(`${anos} ${anos === 1 ? 'ano' : 'anos'}`);
+    if (meses > 0) res.push(`${meses} ${meses === 1 ? 'mês' : 'meses'}`);
+    
+    // Se o resultado for vazio (ex: 15 dias), mostra "Menos de 1 mês"
+    if (res.length === 0) return "Menos de 1 mês";
+    
+    return res.join(' e ');
 }
 
 // ======== SETUP DO DASHBOARD ========
@@ -306,11 +313,16 @@ function criarCardColaborador(colab, index) {
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
     const v = (val) => val || '';
 
+    // ============================================
+    // CORREÇÃO: Lê apenas TEMPO_DE_EMPRESA e converte dias em texto
+    // ============================================
+    const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
+    const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
+
     const nome = v(colab.NOME);
     const cpf = formatarCPF(colab.CPF);
     const funcao = v(colab['CARGO_ATUAL']);
     const area = v(colab.ATIVIDADE);
-    const tempoEmpresa = formatarTempoDeEmpresa(colab['TEMPO_DE_EMPRESA']);
     const escolaridade = v(colab.ESCOLARIDADE);
     const salario = formatarSalario(colab.SALARIO);
     const pcd = colab.PCD || 'NÃO';
@@ -431,6 +443,11 @@ function abrirModalDetalhes(index) {
     const nome = colab.NOME || '';
     const status = colab.SITUACAO || '';
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
+    
+    // ============================================
+    // CORREÇÃO: Lê apenas TEMPO_DE_EMPRESA no Modal também
+    // ============================================
+    const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
 
     header.innerHTML = `
         <div class="avatar-upload-wrapper">
@@ -451,7 +468,7 @@ function abrirModalDetalhes(index) {
         <div class="modal-item"><strong>Função</strong> <span>${colab['CARGO_ATUAL'] || ''}</span></div>
         <div class="modal-item"><strong>Área</strong> <span>${colab.ATIVIDADE || ''}</span></div>
         <div class="modal-item"><strong>Salário</strong> <span>${formatarSalario(colab.SALARIO)}</span></div>
-        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(colab['TEMPO DE EMPRESA'])}</span></div>
+        <div class="modal-item"><strong>Tempo de Casa</strong> <span>${formatarTempoDeEmpresa(tempoEmpresaRaw)}</span></div>
         <div class="modal-item"><strong>Escolaridade</strong> <span>${colab.ESCOLARIDADE || ''}</span></div>
         <div class="modal-item"><strong>PCD</strong> <span>${colab.PCD || 'NÃO'}</span></div>
         <div class="modal-item"><strong>Líder</strong> <span>${colab.LIDER || ''}</span></div>
@@ -481,11 +498,9 @@ function gerarHtmlPDI(colab) {
             const situacao = colab[`SITUACAO_DA_ACAO_${i}`] || '-';
             const acao = colab[`O_QUE_FAZER_${i}`] || '-';
             
-            // --- AQUI ESTAVAM FALTANDO AS VARIÁVEIS NO HTML ---
             const motivo = colab[`POR_QUE_FAZER_${i}`] || '-';
             const quem = colab[`QUE_PODE_ME_AJUDAR_${i}`] || '-';
             const como = colab[`COMO_VOU_FAZER_${i}`] || '-';
-            // --------------------------------------------------
             
             const dataFim = formatarDataExcel(colab[`DATA_DE_TERMINO_${i}`]);
 
@@ -529,8 +544,6 @@ async function carregarDadosDashboard(renderizarGraficos = false) {
         const res = await fetch(`${API_URL}/dashboard-stats`);
         if (!res.ok) throw new Error(`Erro na API: ${res.status}`);
         
-        // CORREÇÃO: Removemos a normalização total do objeto 'data'
-        // Isso evita que a lista de áreas (Array) fique diferente das chaves do objeto (Stats)
         let data = await res.json();
         
         if(!data || !data.stats || !data.areas) return;
@@ -552,9 +565,8 @@ function renderizarTabelasRelatorio(stats, areas, totalAtivos) {
     if(quotaJovem) quotaJovem.textContent = Math.ceil(totalAtivos * 0.05);
     
     areas.forEach(a => {
-        // PROTEÇÃO: Se a área não existir no stats, usa um objeto vazio para não travar
         const s = stats[a] || { qlp: 0, pcd: 0, jovem: 0, meta: {} };
-        const meta = s.meta || {}; // Proteção extra para meta
+        const meta = s.meta || {}; 
 
         htmlQLP += `<tr><td>${a}</td><td>${meta.meta || 0}</td><td>${s.qlp}</td></tr>`;
         
@@ -574,7 +586,6 @@ function renderizarGraficosChartJS(stats, areas) {
     const criarDataset = (keyMeta, keyReal) => {
         const labels = [], dMeta = [], dReal = [], dGap = [];
         areas.forEach(a => {
-            // PROTEÇÃO: Evita crash se stats[a] for undefined
             const s = stats[a] || { meta: {} };
             const m = (s.meta && s.meta[keyMeta]) || 0;
             const r = s[keyReal] || 0;
@@ -721,7 +732,6 @@ async function carregarDadosFerias() {
             const liderDaSolicitacao = (item.lider || '').toUpperCase();
             const meuNome = (usuarioNome || '').toUpperCase();
 
-            // Verifica se sou o líder e não é minha própria solicitação
             if (liderDaSolicitacao.includes(meuNome) && !ehMinha && item.status === 'PENDENTE') {
                 souLiderDeAlguem = true;
                 if(tabelaAprovacao) {

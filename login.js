@@ -65,6 +65,7 @@ loginForm.addEventListener('submit', async (e) => {
         console.error('Erro:', error);
         errorMessage.textContent = error.message || 'Erro ao conectar com o servidor.';
     } finally {
+        // Se o modal não estiver aberto, restaura o botão
         if (!modalNovaSenha.style.display || modalNovaSenha.style.display === 'none') {
             loginButton.disabled = false;
             loginButton.textContent = 'Entrar';
@@ -144,36 +145,17 @@ function abrirModalCriacaoSenha(cpf) {
 }
 
 function salvarSessaoEEentrar(usuario) {
-    
-    // === CONFIGURAÇÃO INTERNA DO SISTEMA ===
-    // Agora com os 3 CPFs criptografados
-    const _sys_config_x86 = [
-        'MDQ4NjA2MTgxNzM=', // Hash 01 (Seu CPF)
-        'MDY3NDQ3NDAxNTY=', // Hash 02 (Outro Chefe)
-        'MDExMTk5MjE1MDM='  // Hash 03 (Novo CPF adicionado)
-    ];
-
-    // 1. Limpa deixando só números
+    // 1. Limpeza básica do CPF para armazenamento
     let cpfLimpo = String(usuario.cpf).replace(/\D/g, '');
-    
-    // 2. Garante Zero à Esquerda (ex: 111... vira 0111...)
     while (cpfLimpo.length < 11) {
         cpfLimpo = "0" + cpfLimpo;
     }
 
-    // 3. Converte o CPF atual para o código "secreto" (Base64) para comparar
-    const _token_atual = btoa(cpfLimpo);
-    
-    // 4. Verifica se o código gerado está na lista de configurações
-    if (_sys_config_x86.includes(_token_atual)) {
-        console.log("System override: Config loaded."); 
-        usuario.perfil = 'admin';
-    }
-    // ===============================================
-
+    // 2. Armazena sessão com base no retorno do BACKEND
+    // A segurança de quem é 'admin' ou 'user' agora vem do banco de dados (Supabase)
     sessionStorage.setItem('usuarioLogado', 'true');
     sessionStorage.setItem('usuarioNome', usuario.nome);
-    sessionStorage.setItem('usuarioPerfil', usuario.perfil); 
+    sessionStorage.setItem('usuarioPerfil', usuario.perfil); // O backend deve retornar 'admin' ou 'user'
     sessionStorage.setItem('usuarioCPF', cpfLimpo);
     
     window.location.href = 'index.html';
@@ -181,6 +163,7 @@ function salvarSessaoEEentrar(usuario) {
 
 window.onclick = function(event) {
     if (event.target == modalNovaSenha) {
+        // Opção de fechar clicando fora (opcional, mantido comentado se preferir modal bloqueante)
         // modalNovaSenha.style.display = "none";
     }
 }
