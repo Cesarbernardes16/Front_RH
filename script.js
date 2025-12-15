@@ -344,7 +344,7 @@ function criarCardColaborador(colab, index) {
     const lider = v(colab.LIDER);
     const ultimaFuncao = v(colab.CARGO_ANTIGO);
     const dataPromocao = formatarDataExcel(colab['DATA_DA_PROMOCAO']);
-    const classificacao = colab.CLASSIFICACAO || 'SEM';
+    const classificacao = colab.CLASSIFICACAO || 'NOVO';
 
     return `
         <div class="employee-card ${statusClass}">
