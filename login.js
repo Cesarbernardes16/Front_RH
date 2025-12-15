@@ -18,12 +18,17 @@ const errorModal = document.getElementById('error-message-modal');
 const API_URL = 'https://backend-g-rh.onrender.com';
 
 // 1. VERIFICAÇÃO DE SEGURANÇA (Se já estiver logado via Cookie, entra direto)
-const usuarioLogado = Sessao.ler();
-if (usuarioLogado && usuarioLogado.cpf) {
-    window.location.href = 'index.html';
+try {
+    const usuarioLogado = Sessao.ler();
+    if (usuarioLogado && usuarioLogado.cpf) {
+        console.log("Usuário já logado, redirecionando...");
+        window.location.href = 'index.html';
+    }
+} catch (e) {
+    console.error("Erro ao ler sessão:", e);
 }
 
-// 2. LOGIN
+// 2. LÓGICA DE LOGIN
 loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -44,6 +49,7 @@ loginForm.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (response.ok && data.sucesso) {
+            console.log("Login bem sucedido! Salvando sessão...");
             salvarSessaoEEentrar(data.usuario);
         } 
         else if (data.precisa_definir_senha) {
@@ -54,9 +60,10 @@ loginForm.addEventListener('submit', async (e) => {
         }
 
     } catch (error) {
-        console.error('Erro:', error);
+        console.error('Erro no login:', error);
         errorMessage.textContent = error.message || 'Erro ao conectar com o servidor.';
     } finally {
+        // Só reativa o botão se o modal não estiver aberto
         if (!modalNovaSenha.style.display || modalNovaSenha.style.display === 'none') {
             loginButton.disabled = false;
             loginButton.textContent = 'Entrar';
@@ -64,7 +71,7 @@ loginForm.addEventListener('submit', async (e) => {
     }
 });
 
-// 3. CRIAR SENHA
+// 3. LÓGICA DE CRIAÇÃO DE SENHA
 formCriarSenha.addEventListener('submit', async (e) => {
     e.preventDefault();
     const cpf = cpfHiddenInput.value;
@@ -92,7 +99,7 @@ formCriarSenha.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (response.ok && data.sucesso) {
-            alert("Senha criada com sucesso!");
+            alert("Senha criada com sucesso! Entrando...");
             salvarSessaoEEentrar(data.usuario);
         } else {
             throw new Error(data.mensagem || 'Erro ao criar senha.');
@@ -111,18 +118,25 @@ function abrirModalCriacaoSenha(cpf) {
 }
 
 function salvarSessaoEEentrar(usuario) {
-    // Limpeza CPF
+    // 1. Limpeza CPF (Garante zeros à esquerda)
     let cpfLimpo = String(usuario.cpf).replace(/\D/g, '');
     while (cpfLimpo.length < 11) cpfLimpo = "0" + cpfLimpo;
     usuario.cpf = cpfLimpo;
 
-    // AQUI ESTÁ A MUDANÇA PRINCIPAL:
-    // Usamos a função segura que criptografa os dados antes de salvar
+    // 2. Salva no Cookie Seguro
+    console.log("Salvando usuário no cookie:", usuario);
     Sessao.salvar(usuario);
     
-    window.location.href = 'index.html';
+    // 3. Redireciona com um pequeno delay para garantir que o cookie foi gravado
+    setTimeout(() => {
+        console.log("Redirecionando para index.html...");
+        window.location.replace('index.html'); // .replace impede voltar para login
+    }, 100);
 }
 
+// Fecha modal clicando fora
 window.onclick = function(event) {
-    if (event.target == modalNovaSenha) { }
+    if (event.target == modalNovaSenha) {
+        // modalNovaSenha.style.display = "none"; // Opcional
+    }
 }
