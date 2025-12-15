@@ -344,7 +344,12 @@ function criarCardColaborador(colab, index) {
     const lider = v(colab.LIDER);
     const ultimaFuncao = v(colab.CARGO_ANTIGO);
     const dataPromocao = formatarDataExcel(colab['DATA_DA_PROMOCAO']);
-    const classificacao = colab.CLASSIFICACAO || 'NOVO';
+    
+    // ============================================
+    // LÓGICA CORRIGIDA: Se for null, undefined OU 'SEM', vira 'NOVO'
+    // ============================================
+    let classificacao = colab.CLASSIFICACAO || 'NOVO';
+    if (classificacao === 'SEM') classificacao = 'NOVO';
 
     return `
         <div class="employee-card ${statusClass}">
@@ -373,12 +378,6 @@ function criarCardColaborador(colab, index) {
                 <p><strong>ULTIMA FUNÇÃO:</strong> <span>${ultimaFuncao}</span></p>
                 <p><strong>DATA ULTIMA PROMOÇÃO:</strong> <span>${dataPromocao}</span></p>
                 <p><strong>CICLO DE GENTE:</strong> <span class="classificacao-badge ${classificacaoClass}">${classificacao}</span></p>
-                <p><strong>HISTORICO DE ADVERTENCIAS:</strong> <span></span></p>
-                <p><strong>HISTORICO DE SUSPENSÃO:</strong> <span></span></p>
-                <p><strong>BANCO DE HORAS TOTAL:</strong> <span></span></p>
-                <p><strong>QTD INTERJORNADA:</strong> <span></span></p>
-                <p><strong>QTD INTRAJORNADA:</strong> <span></span></p>
-                <p><strong>PROGRAMAÇÃO FÉRIAS:</strong> <span></span></p>
             </div>
             <div class="card-footer" onclick="abrirModalDetalhes(${index})">
                 <span class="material-icons-outlined expand-icon">keyboard_arrow_down</span>
@@ -458,6 +457,10 @@ function abrirModalDetalhes(index) {
     const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
     const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
 
+    // LÓGICA "NOVO" TAMBÉM NO MODAL
+    let classificacao = colab.CLASSIFICACAO || 'NOVO';
+    if (classificacao === 'SEM') classificacao = 'NOVO';
+
     header.innerHTML = `
         <div class="avatar-upload-wrapper">
             <img src="${fotoSrc}" alt="${nome}">
@@ -482,7 +485,7 @@ function abrirModalDetalhes(index) {
         <div class="modal-item"><strong>PCD</strong> <span>${colab.PCD || 'NÃO'}</span></div>
         <div class="modal-item"><strong>Líder</strong> <span>${colab.LIDER || ''}</span></div>
         <div class="modal-item"><strong>Turno</strong> <span>${colab.TURNO || ''}</span></div>
-        <div class="modal-item"><strong>CLASSIFICAÇÃO CICLO DE GENTE</strong> <span>${colab.CLASSIFICACAO || '-'}</span></div>
+        <div class="modal-item"><strong>CLASSIFICAÇÃO CICLO DE GENTE</strong> <span>${classificacao}</span></div>
         <div class="modal-item"><strong>DATA ULTIMA PROMOÇÃO</strong> <span>${formatarDataExcel(colab['DATA DA PROMOCAO'])}</span></div>
         <div class="modal-item" style="grid-column: 1/-1; background:#f9f9f9; padding:10px; border-radius:4px;">    
         ${gerarHtmlPDI(colab)}
