@@ -1,5 +1,3 @@
-// frontend_G_RH/script.js
-
 const API_URL = 'https://backend-g-rh.onrender.com';
 
 // Variáveis Globais
@@ -20,6 +18,22 @@ if (!usuarioLogado) {
     // Se não tiver cookie válido ou se foi adulterado, manda pro login
     window.location.href = 'login.html';
 }
+
+// ==========================================
+// 🚫 BLOQUEIO DE ACESSO PRELIMINAR (DADOS DA SESSÃO)
+// ==========================================
+// Tenta bloquear baseando-se no que está salvo no navegador.
+// Nota: Se o backend não mandar 'CLASSIFICACAO' no login, esta parte pode passar,
+// mas a verificação dentro de fetchColaboradores irá barrar depois.
+const _situacaoUsuario = (usuarioLogado.SITUACAO || usuarioLogado.situacao || '').toUpperCase();
+const _classificacaoUsuario = (usuarioLogado.CLASSIFICACAO || usuarioLogado.classificacao || '').toUpperCase();
+
+if (_situacaoUsuario.includes('DESLIGADO') || _classificacaoUsuario === 'DESLIGAR') {
+    alert('Acesso não permitido.\nMotivo: Vínculo encerrado ou em processo de desligamento.');
+    Sessao.limpar();
+    throw new Error("Acesso negado: Usuário desligado.");
+}
+// ==========================================
 
 const usuarioPerfil = usuarioLogado.perfil; // 'admin' ou 'user'
 const usuarioCPF = usuarioLogado.cpf;
@@ -62,19 +76,14 @@ function formatarDataExcel(valor) {
 
 function formatarTempoDeEmpresa(dias) {
     const n = parseInt(dias, 10);
-    // Se vier vazio, negativo ou texto não numérico
     if (isNaN(n) || n <= 0) return 'Recente'; 
     
-    // Se o número for muito grande (tipo data serial 45000), 
-    // significa que a planilha está mandando DATA em vez de DIAS.
-    // Vamos tratar isso para não mostrar 1902.
     if (n > 20000) {
-        // Tenta calcular diferença de hoje
         const hoje = new Date();
         const dataAdmissao = new Date((n - 25569) * 86400000);
         const diffTime = Math.abs(hoje - dataAdmissao);
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-        return formatarTempoDeEmpresa(diffDays); // Chama recursivo com os dias certos
+        return formatarTempoDeEmpresa(diffDays);
     }
 
     const anos = Math.floor(n / 365);
@@ -115,7 +124,6 @@ function setupDashboard() {
 
     setupMobileMenu();
 
-    // Lógica de visualização baseada no PERFIL descriptografado
     if (usuarioPerfil === 'user') {
         const filterContainer = document.querySelector('.filter-container');
         if (filterContainer) filterContainer.style.display = 'none';
@@ -190,7 +198,7 @@ function setupNavigation() {
     const navSair = document.getElementById('nav-sair');
     if (navSair) navSair.addEventListener('click', (e) => {
         e.preventDefault();
-        Sessao.limpar(); // Usa a função segura de logout
+        Sessao.limpar();
     });
 }
 
@@ -275,6 +283,7 @@ async function fetchColaboradores() {
     };
 
     if (usuarioPerfil === 'user') {
+        // PERFIL USER: Busca apenas os dados do próprio CPF
         paramsObj = { cpf_filtro: usuarioCPF, page: 0 };
     }
 
@@ -290,6 +299,25 @@ async function fetchColaboradores() {
             if(currentPage === 0) dashboardContainer.innerHTML = "<p>Nenhum dado encontrado.</p>";
             return;
         }
+
+        // =======================================================
+        // 🔒 VERIFICAÇÃO PROFUNDA (Ao receber dados frescos da API)
+        // =======================================================
+        // Se for um usuário comum e o status/classificação vier 'DESLIGAR'/'DESLIGADO' do banco
+        if (usuarioPerfil === 'user') {
+            const dadosUsuarioFrescos = data[0]; // Como filtramos por CPF, o índice 0 é o próprio usuário
+            if (dadosUsuarioFrescos) {
+                const statusFresco = (dadosUsuarioFrescos.SITUACAO || '').toUpperCase();
+                const classifFresco = (dadosUsuarioFrescos.CLASSIFICACAO || '').toUpperCase();
+                
+                if (statusFresco.includes('DESLIGADO') || classifFresco === 'DESLIGAR') {
+                    alert('Acesso interrompido.\nProcure o seu gestor imediato.');
+                    Sessao.limpar();
+                    return; // Interrompe a renderização
+                }
+            }
+        }
+        // =======================================================
 
         data.forEach(colaborador => {
             const colaboradorNormalizado = normalizarObjeto(colaborador);
@@ -325,9 +353,6 @@ function criarCardColaborador(colab, index) {
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
     const v = (val) => val || '';
 
-    // ============================================
-    // CORREÇÃO DATA / TEMPO
-    // ============================================
     const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
     const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
 
@@ -345,9 +370,6 @@ function criarCardColaborador(colab, index) {
     const ultimaFuncao = v(colab.CARGO_ANTIGO);
     const dataPromocao = formatarDataExcel(colab['DATA_DA_PROMOCAO']);
     
-    // ============================================
-    // LÓGICA CORRIGIDA: Se for null, undefined OU 'SEM', vira 'NOVO'
-    // ============================================
     let classificacao = colab.CLASSIFICACAO || 'NOVO';
     if (classificacao === 'SEM') classificacao = 'NOVO';
 
@@ -453,11 +475,9 @@ function abrirModalDetalhes(index) {
     const status = colab.SITUACAO || '';
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
     
-    // Ajuste tempo modal
     const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
     const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
 
-    // LÓGICA "NOVO" TAMBÉM NO MODAL
     let classificacao = colab.CLASSIFICACAO || 'NOVO';
     if (classificacao === 'SEM') classificacao = 'NOVO';
 

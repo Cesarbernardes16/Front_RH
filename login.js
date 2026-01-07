@@ -112,6 +112,12 @@ function abrirModalCriacaoSenha(cpf) {
 }
 
 function salvarSessaoEEentrar(usuario) {
+    // VERIFICAÇÃO DE BLOQUEIO (DESLIGAR)
+    if (usuario.CLASSIFICACAO === 'DESLIGAR') {
+        alert('Seu acesso está suspenso. Entre em contato com o RH.');
+        return;
+    }
+
     // Limpeza CPF
     let cpfLimpo = String(usuario.cpf).replace(/\D/g, '');
     while (cpfLimpo.length < 11) cpfLimpo = "0" + cpfLimpo;
