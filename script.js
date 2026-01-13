@@ -887,7 +887,9 @@ function gerarCSVExportacao(dados) {
         { header: "Telefone Emergência", key: "CONT_FAMILIAR" },
         { header: "Turno", key: "TURNO" },
         { header: "Líder Imediato", key: "LIDER" },
-        { header: "Cargo Antigo", key: "CARGO_ANTIGO" }
+        { header: "Cargo Antigo", key: "CARGO_ANTIGO" },
+        { header: "Data Ultima promoção", key: "DATA_DA_PROMOCAO" },
+        { header: "Ciclo de Gente", key: "CLASSIFICACAO" },
     ];
 
     let csvContent = "data:text/csv;charset=utf-8,";
