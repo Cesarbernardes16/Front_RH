@@ -1,7 +1,7 @@
 const API_URL = 'https://backend-g-rh.onrender.com';
 
 // Variáveis Globais
-let dashboardContainer, loadingIndicator, searchBar, filterStatus, filterArea, filterLider, filterClassificacao, loadMoreButton;
+let dashboardContainer, loadingIndicator, searchBar, filterStatus, filterArea, filterLider, filterClassificacao, filterPCD, btnExportarGeral, loadMoreButton;
 let metaForm, metaAreaSelect, metaValorInput, metaPCDInput, metaJovemInput, metaSubmitButton, metaSuccessMessage;
 let reportTableBodyQLP, reportTableBodyPCD, reportTableBodyJovem;
 let metaChartQLP = null, metaChartPCD = null, metaChartJovem = null;
@@ -15,16 +15,12 @@ let cacheFerias = [];
 const usuarioLogado = Sessao.ler();
 
 if (!usuarioLogado) {
-    // Se não tiver cookie válido ou se foi adulterado, manda pro login
     window.location.href = 'login.html';
 }
 
 // ==========================================
-// 🚫 BLOQUEIO DE ACESSO PRELIMINAR (DADOS DA SESSÃO)
+// 🚫 BLOQUEIO DE ACESSO PRELIMINAR
 // ==========================================
-// Tenta bloquear baseando-se no que está salvo no navegador.
-// Nota: Se o backend não mandar 'CLASSIFICACAO' no login, esta parte pode passar,
-// mas a verificação dentro de fetchColaboradores irá barrar depois.
 const _situacaoUsuario = (usuarioLogado.SITUACAO || usuarioLogado.situacao || '').toUpperCase();
 const _classificacaoUsuario = (usuarioLogado.CLASSIFICACAO || usuarioLogado.classificacao || '').toUpperCase();
 
@@ -39,7 +35,18 @@ const usuarioPerfil = usuarioLogado.perfil; // 'admin' ou 'user'
 const usuarioCPF = usuarioLogado.cpf;
 const usuarioNome = usuarioLogado.nome;
 
-// ======== FUNÇÕES DE FORMATAÇÃO ========
+// ======== FUNÇÕES DE AJUDA ========
+
+function normalizarStatusPCD(valor) {
+    if (valor === null || valor === undefined) return 'NÃO';
+    if (valor === true) return 'SIM';
+    if (valor === false) return 'NÃO';
+    const s = String(valor).toUpperCase().trim();
+    const positivos = ['SIM', 'S', 'YES', 'Y', 'TRUE', '1', 'VERDADEIRO'];
+    if (positivos.includes(s)) return 'SIM';
+    return 'NÃO';
+}
+
 function formatarSalario(valor) {
     if (!valor) return '';
     const numeroLimpo = String(valor).replace("R$", "").replace(/\./g, "").replace(",", ".");
@@ -77,7 +84,6 @@ function formatarDataExcel(valor) {
 function formatarTempoDeEmpresa(dias) {
     const n = parseInt(dias, 10);
     if (isNaN(n) || n <= 0) return 'Recente'; 
-    
     if (n > 20000) {
         const hoje = new Date();
         const dataAdmissao = new Date((n - 25569) * 86400000);
@@ -85,15 +91,12 @@ function formatarTempoDeEmpresa(dias) {
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
         return formatarTempoDeEmpresa(diffDays);
     }
-
     const anos = Math.floor(n / 365);
     const diasRestantes = n % 365;
     const meses = Math.floor(diasRestantes / 30);
-    
     let res = [];
     if (anos > 0) res.push(`${anos} ${anos === 1 ? 'ano' : 'anos'}`);
     if (meses > 0) res.push(`${meses} ${meses === 1 ? 'mês' : 'meses'}`);
-    
     if (res.length === 0) return "Menos de 1 mês";
     return res.join(' e ');
 }
@@ -108,6 +111,8 @@ function setupDashboard() {
     filterArea = document.getElementById('filter-area');
     filterLider = document.getElementById('filter-lider');
     filterClassificacao = document.getElementById('filter-classificacao');
+    filterPCD = document.getElementById('filter-pcd');
+    btnExportarGeral = document.getElementById('btn-exportar-geral');
     loadMoreButton = document.getElementById('load-more-button');
     
     metaForm = document.getElementById('meta-form');
@@ -144,6 +149,9 @@ function setupDashboard() {
     if (filterArea) filterArea.addEventListener('change', carregarColaboradores);
     if (filterLider) filterLider.addEventListener('change', carregarColaboradores);
     if (filterClassificacao) filterClassificacao.addEventListener('change', carregarColaboradores);
+    if (filterPCD) filterPCD.addEventListener('change', carregarColaboradores);
+    
+    if (btnExportarGeral) btnExportarGeral.addEventListener('click', exportarRelatorioGeral);
     if (loadMoreButton) loadMoreButton.addEventListener('click', carregarMais);
     
     if (metaForm) metaForm.addEventListener('submit', handleMetaSubmit);
@@ -159,23 +167,14 @@ function setupMobileMenu() {
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
 
-    function toggleMenu() {
-        sidebar.classList.toggle('active');
-        overlay.classList.toggle('active');
-    }
-    function closeMenu() {
-        sidebar.classList.remove('active');
-        overlay.classList.remove('active');
-    }
+    function toggleMenu() { sidebar.classList.toggle('active'); overlay.classList.toggle('active'); }
+    function closeMenu() { sidebar.classList.remove('active'); overlay.classList.remove('active'); }
 
     if (btnMenu) btnMenu.addEventListener('click', toggleMenu);
     if (btnClose) btnClose.addEventListener('click', closeMenu);
     if (overlay) overlay.addEventListener('click', closeMenu);
-
     const links = document.querySelectorAll('.nav-link');
-    links.forEach(l => l.addEventListener('click', () => {
-        if(window.innerWidth <= 768) closeMenu();
-    }));
+    links.forEach(l => l.addEventListener('click', () => { if(window.innerWidth <= 768) closeMenu(); }));
 }
 
 function setupNavigation() {
@@ -196,10 +195,7 @@ function setupNavigation() {
         });
     });
     const navSair = document.getElementById('nav-sair');
-    if (navSair) navSair.addEventListener('click', (e) => {
-        e.preventDefault();
-        Sessao.limpar();
-    });
+    if (navSair) navSair.addEventListener('click', (e) => { e.preventDefault(); Sessao.limpar(); });
 }
 
 function trocarAba(aba) {
@@ -237,7 +233,6 @@ async function carregarFiltrosAPI() {
     try {
         const res = await fetch(`${API_URL}/filtros`);
         let { areas, lideres, classificacoes } = await res.json();
-        
         areas = areas.map(i => normalizarTexto(i));
         lideres = lideres.map(i => normalizarTexto(i));
         classificacoes = classificacoes.map(i => normalizarTexto(i));
@@ -253,14 +248,37 @@ async function carregarFiltrosAPI() {
     } catch (e) { console.error("Erro ao carregar filtros", e); }
 }
 
+// ================================================================
+// 🎮 CONTROLADOR DE CARREGAMENTO (DECISOR DE MODO)
+// ================================================================
+
+// Verifica se há qualquer filtro ativo
+function temFiltrosAtivos() {
+    const s = searchBar ? searchBar.value : '';
+    const st = filterStatus ? filterStatus.value : '';
+    const a = filterArea ? filterArea.value : '';
+    const l = filterLider ? filterLider.value : '';
+    const c = filterClassificacao ? filterClassificacao.value : '';
+    const p = filterPCD ? filterPCD.value : '';
+    return (s || st || a || l || c || p);
+}
+
 async function carregarColaboradores() {
     currentPage = 0;
-    if (!loadingIndicator || !dashboardContainer) return;
-    loadingIndicator.style.display = 'block';
+    
+    // Limpa a tela antes de buscar
     dashboardContainer.innerHTML = '';
-    listaColaboradoresGlobal = [];
+    loadingIndicator.style.display = 'block';
     if(loadMoreButton) loadMoreButton.style.display = 'none';
-    await fetchColaboradores();
+    
+    listaColaboradoresGlobal = [];
+
+    // DECISÃO: Se tem filtro, busca TUDO. Se não, pagina.
+    if (temFiltrosAtivos()) {
+        await fetchAllAndFilter();
+    } else {
+        await fetchPaginated();
+    }
 }
 
 async function carregarMais() {
@@ -269,29 +287,103 @@ async function carregarMais() {
         loadMoreButton.disabled = true;
         loadMoreButton.textContent = 'Carregando...';
     }
-    await fetchColaboradores();
+    await fetchPaginated();
 }
 
-async function fetchColaboradores() {
+// ================================================================
+// 1. MODO CARREGAMENTO TOTAL (COM FILTROS)
+// ================================================================
+async function fetchAllAndFilter() {
+    loadingIndicator.textContent = "Filtrando resultados (Buscando em toda a base)...";
+    
+    // Parâmetros para enviar ao backend (ele filtra o que pode)
     let paramsObj = {
-        page: currentPage,
         search: searchBar ? searchBar.value : '',
         status: filterStatus ? filterStatus.value : '',
         area: filterArea ? filterArea.value : '',
         lider: filterLider ? filterLider.value : '',
         classificacao: filterClassificacao ? filterClassificacao.value : ''
     };
+    if (usuarioPerfil === 'user') paramsObj = { cpf_filtro: usuarioCPF };
 
-    if (usuarioPerfil === 'user') {
-        // PERFIL USER: Busca apenas os dados do próprio CPF
-        paramsObj = { cpf_filtro: usuarioCPF, page: 0 };
+    let page = 0;
+    let keepFetching = true;
+    let allData = [];
+
+    try {
+        // Loop para baixar todas as páginas do backend
+        while (keepFetching) {
+            paramsObj.page = page;
+            const params = new URLSearchParams(paramsObj);
+            const res = await fetch(`${API_URL}/colaboradores?${params}`);
+            const { data } = await res.json();
+
+            if (!data || data.length === 0) {
+                keepFetching = false;
+            } else {
+                allData = allData.concat(data);
+                if (data.length < 30) keepFetching = false; // Última página
+                page++;
+                if (page > 100) keepFetching = false; // Trava de segurança
+            }
+        }
+
+        // Aplica filtros extras no Client-Side (Principalmente PCD)
+        const pcdFiltro = filterPCD ? filterPCD.value : '';
+        const pcdTargetNorm = pcdFiltro ? normalizarStatusPCD(pcdFiltro) : '';
+
+        const filteredData = allData.filter(colab => {
+            const c = normalizarObjeto(colab);
+            
+            // Filtro PCD (Client Side - Mandatório)
+            if (pcdTargetNorm) {
+                const pcdBancoNorm = normalizarStatusPCD(c.PCD);
+                if (pcdBancoNorm !== pcdTargetNorm) return false;
+            }
+            
+            // Outros filtros já foram aplicados pelo backend, mas poderíamos reforçar aqui se necessário.
+            // Por enquanto, confiamos no backend para Area, Lider, etc. para performance.
+            
+            return true;
+        });
+
+        loadingIndicator.style.display = 'none';
+
+        if (filteredData.length === 0) {
+            dashboardContainer.innerHTML = `<p>Nenhum colaborador encontrado com os filtros selecionados.</p>`;
+        } else {
+            verificarSegurancaUser(filteredData); // Checa o primeiro item por segurança
+            
+            filteredData.forEach(colab => {
+                const colaboradorNormalizado = normalizarObjeto(colab);
+                const index = listaColaboradoresGlobal.push(colaboradorNormalizado) - 1;
+                dashboardContainer.innerHTML += criarCardColaborador(colaboradorNormalizado, index);
+            });
+        }
+        
+        // No modo filtro total, não há botão "Carregar Mais"
+        if(loadMoreButton) loadMoreButton.style.display = 'none';
+
+    } catch (e) {
+        console.error(e);
+        loadingIndicator.textContent = "Erro ao processar filtros.";
     }
+}
 
+// ================================================================
+// 2. MODO PAGINADO (SEM FILTROS - CARGA LEVE)
+// ================================================================
+async function fetchPaginated() {
+    loadingIndicator.textContent = "Carregando colaboradores...";
+    
+    let paramsObj = { page: currentPage };
+    if (usuarioPerfil === 'user') paramsObj = { cpf_filtro: usuarioCPF, page: 0 };
+    
     const params = new URLSearchParams(paramsObj);
 
     try {
         const res = await fetch(`${API_URL}/colaboradores?${params}`);
-        const { data, count } = await res.json();
+        const { data } = await res.json();
 
         loadingIndicator.style.display = 'none';
 
@@ -300,24 +392,7 @@ async function fetchColaboradores() {
             return;
         }
 
-        // =======================================================
-        // 🔒 VERIFICAÇÃO PROFUNDA (Ao receber dados frescos da API)
-        // =======================================================
-        // Se for um usuário comum e o status/classificação vier 'DESLIGAR'/'DESLIGADO' do banco
-        if (usuarioPerfil === 'user') {
-            const dadosUsuarioFrescos = data[0]; // Como filtramos por CPF, o índice 0 é o próprio usuário
-            if (dadosUsuarioFrescos) {
-                const statusFresco = (dadosUsuarioFrescos.SITUACAO || '').toUpperCase();
-                const classifFresco = (dadosUsuarioFrescos.CLASSIFICACAO || '').toUpperCase();
-                
-                if (statusFresco.includes('DESLIGADO') || classifFresco === 'DESLIGAR') {
-                    alert('Acesso interrompido.\nProcure o seu gestor imediato.');
-                    Sessao.limpar();
-                    return; // Interrompe a renderização
-                }
-            }
-        }
-        // =======================================================
+        verificarSegurancaUser(data);
 
         data.forEach(colaborador => {
             const colaboradorNormalizado = normalizarObjeto(colaborador);
@@ -328,19 +403,38 @@ async function fetchColaboradores() {
         if(loadMoreButton) {
             loadMoreButton.disabled = false;
             loadMoreButton.textContent = 'Carregar Mais';
+            // Só mostra o botão se tiver filtros vazios E vieram dados suficientes
             loadMoreButton.style.display = (usuarioPerfil === 'user' || data.length < 30) ? 'none' : 'block';
         }
 
     } catch (error) {
         console.error(error);
-        dashboardContainer.innerHTML = `<p style="color:red">Erro de conexão com o servidor.</p>`;
+        dashboardContainer.innerHTML = `<p style="color:red">Erro de conexão.</p>`;
+    }
+}
+
+function verificarSegurancaUser(data) {
+    if (usuarioPerfil === 'user' && data.length > 0) {
+        const dadosUsuarioFrescos = data[0]; 
+        if (dadosUsuarioFrescos) {
+            const statusFresco = (dadosUsuarioFrescos.SITUACAO || '').toUpperCase();
+            const classifFresco = (dadosUsuarioFrescos.CLASSIFICACAO || '').toUpperCase();
+            if (statusFresco.includes('DESLIGADO') || classifFresco === 'DESLIGAR') {
+                alert('Acesso interrompido.\nProcure o seu gestor imediato.');
+                Sessao.limpar();
+                throw new Error("Bloqueio de segurança ativo.");
+            }
+        }
     }
 }
 
 function criarCardColaborador(colab, index) {
     const status = colab.SITUACAO || 'Indefinido';
     const statusClass = status.includes('AFASTADO') ? 'status-afastado' : (status.includes('DESLIGADO') ? 'status-desligados' : 'status-ativo');
-    const pcdClass = (colab.PCD === 'SIM') ? 'pcd-sim' : 'pcd-nao';
+    
+    // Tratamento visual do badge PCD
+    const pcdValor = normalizarStatusPCD(colab.PCD);
+    const pcdClass = (pcdValor === 'SIM') ? 'pcd-sim' : 'pcd-nao';
     
     let classificacaoClass = 'classificacao-sem';
     const classif = (colab.CLASSIFICACAO || '').toUpperCase();
@@ -362,7 +456,7 @@ function criarCardColaborador(colab, index) {
     const area = v(colab.ATIVIDADE);
     const escolaridade = v(colab.ESCOLARIDADE);
     const salario = formatarSalario(colab.SALARIO);
-    const pcd = colab.PCD || 'NÃO';
+    const pcd = pcdValor; 
     const telefone = v(colab.CONTATO);
     const telEmergencia = v(colab['CONT_FAMILIAR']);
     const turno = v(colab.TURNO);
@@ -443,24 +537,13 @@ async function uploadFotoPerfil(file, cpf) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cpf: cpf, imagemBase64: resizedBase64 })
         });
-
-        if (res.ok) {
-            alert('Foto atualizada com sucesso!');
-            carregarColaboradores();
-            fecharModal();
-        } else {
-            alert('Erro ao salvar foto.');
-        }
-    } catch (err) {
-        console.error(err);
-        alert('Erro ao processar imagem.');
-    }
+        if (res.ok) { alert('Foto atualizada com sucesso!'); carregarColaboradores(); fecharModal(); } 
+        else { alert('Erro ao salvar foto.'); }
+    } catch (err) { console.error(err); alert('Erro ao processar imagem.'); }
 }
 
 window.handleFileSelect = function(input, cpf) {
-    if (input.files && input.files[0]) {
-        uploadFotoPerfil(input.files[0], cpf);
-    }
+    if (input.files && input.files[0]) uploadFotoPerfil(input.files[0], cpf);
 };
 
 function abrirModalDetalhes(index) {
@@ -474,12 +557,13 @@ function abrirModalDetalhes(index) {
     const nome = colab.NOME || '';
     const status = colab.SITUACAO || '';
     const fotoSrc = colab.FOTO_PERFIL || 'https://cdn-icons-png.flaticon.com/512/847/847969.png';
-    
-    const tempoEmpresaRaw = colab['TEMPO_DE_EMPRESA'];
-    const tempoEmpresa = formatarTempoDeEmpresa(tempoEmpresaRaw);
+    const tempoEmpresa = formatarTempoDeEmpresa(colab['TEMPO_DE_EMPRESA']);
 
     let classificacao = colab.CLASSIFICACAO || 'NOVO';
     if (classificacao === 'SEM') classificacao = 'NOVO';
+    
+    // Tratamento PCD no modal também
+    const pcdValor = normalizarStatusPCD(colab.PCD);
 
     header.innerHTML = `
         <div class="avatar-upload-wrapper">
@@ -502,7 +586,7 @@ function abrirModalDetalhes(index) {
         <div class="modal-item"><strong>Salário</strong> <span>${formatarSalario(colab.SALARIO)}</span></div>
         <div class="modal-item"><strong>Tempo de Casa</strong> <span>${tempoEmpresa}</span></div>
         <div class="modal-item"><strong>Escolaridade</strong> <span>${colab.ESCOLARIDADE || ''}</span></div>
-        <div class="modal-item"><strong>PCD</strong> <span>${colab.PCD || 'NÃO'}</span></div>
+        <div class="modal-item"><strong>PCD</strong> <span>${pcdValor}</span></div>
         <div class="modal-item"><strong>Líder</strong> <span>${colab.LIDER || ''}</span></div>
         <div class="modal-item"><strong>Turno</strong> <span>${colab.TURNO || ''}</span></div>
         <div class="modal-item"><strong>CLASSIFICAÇÃO CICLO DE GENTE</strong> <span>${classificacao}</span></div>
@@ -511,7 +595,6 @@ function abrirModalDetalhes(index) {
         ${gerarHtmlPDI(colab)}
         </div>
     `;
-
     modal.style.display = 'flex';
 }
 
@@ -529,11 +612,9 @@ function gerarHtmlPDI(colab) {
             const status = colab[`STATUS_${i}`] || 'Pendente';
             const situacao = colab[`SITUACAO_DA_ACAO_${i}`] || '-';
             const acao = colab[`O_QUE_FAZER_${i}`] || '-';
-            
             const motivo = colab[`POR_QUE_FAZER_${i}`] || '-';
             const quem = colab[`QUE_PODE_ME_AJUDAR_${i}`] || '-';
             const como = colab[`COMO_VOU_FAZER_${i}`] || '-';
-            
             const dataFim = formatarDataExcel(colab[`DATA_DE_TERMINO_${i}`]);
 
             html += `
@@ -542,7 +623,6 @@ function gerarHtmlPDI(colab) {
                     <div class="pdi-details">
                         <div class="pdi-item"><strong>Situação Atual</strong> <span>${situacao}</span></div>
                         <div class="pdi-item"><strong>Ação (O que fazer)</strong> <span>${acao}</span></div>
-                        
                         <div class="pdi-item"><strong>Motivo (Por que)</strong> <span>${motivo}</span></div>
                         <div class="pdi-item"><strong>Apoio (Quem ajuda)</strong> <span>${quem}</span></div>
                         <div class="pdi-item"><strong>Como vou fazer</strong> <span>${como}</span></div>
@@ -558,40 +638,29 @@ function gerarHtmlPDI(colab) {
     return html;
 }
 
-function fecharModal() {
-    document.getElementById('modal-detalhes').style.display = 'none';
-}
-
-window.onclick = function(event) {
-    const modal = document.getElementById('modal-detalhes');
-    if (event.target == modal) modal.style.display = "none";
-};
+function fecharModal() { document.getElementById('modal-detalhes').style.display = 'none'; }
+window.onclick = function(event) { if (event.target == document.getElementById('modal-detalhes')) fecharModal(); };
 
 // ==========================================
-// 📊 DASHBOARD
+// 📊 DASHBOARD & EXPORTAÇÃO
 // ==========================================
 async function carregarDadosDashboard(renderizarGraficos = false) {
     if (usuarioPerfil === 'user') return; 
     try {
         const res = await fetch(`${API_URL}/dashboard-stats`);
         if (!res.ok) throw new Error(`Erro na API: ${res.status}`);
-        
         let data = await res.json();
         if(!data || !data.stats || !data.areas) return;
-
-        const { stats, totalAtivos, areas } = data;
-        renderizarTabelasRelatorio(stats, areas, totalAtivos);
-        if (renderizarGraficos) renderizarGraficosChartJS(stats, areas);
+        renderizarTabelasRelatorio(data.stats, data.areas, data.totalAtivos);
+        if (renderizarGraficos) renderizarGraficosChartJS(data.stats, data.areas);
     } catch (e) { console.error("Erro dashboard stats", e); }
 }
 
 function renderizarTabelasRelatorio(stats, areas, totalAtivos) {
     if(!reportTableBodyQLP) return;
     let htmlQLP = '', htmlPCD = '', htmlJovem = '';
-    
     const quotaPCD = document.getElementById('quota-pcd-value');
     if(quotaPCD) quotaPCD.textContent = Math.ceil(totalAtivos * (totalAtivos > 1000 ? 0.05 : 0.02));
-    
     const quotaJovem = document.getElementById('quota-jovem-value');
     if(quotaJovem) quotaJovem.textContent = Math.ceil(totalAtivos * 0.05);
     
@@ -604,7 +673,6 @@ function renderizarTabelasRelatorio(stats, areas, totalAtivos) {
         if(meta.meta_jovem || s.jovem > 0) 
             htmlJovem += `<tr><td>${a}</td><td>${meta.meta_jovem || 0}</td><td>${s.jovem}</td></tr>`;
     });
-
     reportTableBodyQLP.innerHTML = htmlQLP;
     reportTableBodyPCD.innerHTML = htmlPCD || '<tr><td colspan="3">Vazio</td></tr>';
     reportTableBodyJovem.innerHTML = htmlJovem || '<tr><td colspan="3">Vazio</td></tr>';
@@ -673,7 +741,6 @@ if (formFerias) {
         e.preventDefault();
         const inicio = document.getElementById('ferias-inicio').value;
         const fim = document.getElementById('ferias-fim').value;
-
         if (inicio > fim) return alert('A data de fim deve ser depois do início.');
         if(!confirm(`Confirma solicitação de férias de ${formatarDataExcel(inicio)} até ${formatarDataExcel(fim)}?`)) return;
 
@@ -684,12 +751,8 @@ if (formFerias) {
                 body: JSON.stringify({ cpf: usuarioCPF, data_inicio: inicio, data_fim: fim })
             });
             const data = await res.json();
-            if(data.sucesso) {
-                alert('Solicitação enviada com sucesso!');
-                carregarDadosFerias();
-            } else {
-                alert('Erro: ' + data.mensagem);
-            }
+            if(data.sucesso) { alert('Solicitação enviada com sucesso!'); carregarDadosFerias(); } 
+            else { alert('Erro: ' + data.mensagem); }
         } catch(err) { console.error(err); alert('Erro de conexão'); }
     });
 }
@@ -697,80 +760,42 @@ if (formFerias) {
 async function carregarDadosFerias() {
     const cpfLimpo = String(usuarioCPF).replace(/\D/g, '');
     const btnExport = document.getElementById('btn-exportar-ferias');
-    
     try {
-        const params = new URLSearchParams({
-            cpf: cpfLimpo,
-            perfil: usuarioPerfil,
-            nome_usuario: usuarioNome
-        });
+        const params = new URLSearchParams({ cpf: cpfLimpo, perfil: usuarioPerfil, nome_usuario: usuarioNome });
         const res = await fetch(`${API_URL}/ferias/listar?${params}`);
         const json = await res.json();
-        
         if (!json.sucesso) throw new Error(json.error);
-
-        const dados = json.dados;
-        cacheFerias = dados;
+        cacheFerias = json.dados;
 
         const tabelaAprovacao = document.getElementById('lista-aprovacao-body');
         const painelLider = document.getElementById('area-aprovacao-lider');
         const tabelaHistorico = document.getElementById('lista-ferias-body');
-
         if(tabelaAprovacao) tabelaAprovacao.innerHTML = '';
         if(tabelaHistorico) tabelaHistorico.innerHTML = '';
 
         let souLiderDeAlguem = false;
-
-        dados.forEach(item => {
+        cacheFerias.forEach(item => {
             const dataIni = formatarDataExcel(item.data_inicio);
             const dataFim = formatarDataExcel(item.data_fim);
-            
-            let badgeClass = '';
-            if(item.status === 'APROVADO') badgeClass = 'status-ativo';
-            else if(item.status === 'REJEITADO') badgeClass = 'status-desligados';
-            else badgeClass = 'status-afastado';
-
+            let badgeClass = item.status === 'APROVADO' ? 'status-ativo' : (item.status === 'REJEITADO' ? 'status-desligados' : 'status-afastado');
             const badge = `<span class="status-badge ${badgeClass}">${item.status}</span>`;
             const ehMinha = String(item.cpf) === String(cpfLimpo);
-            
-            if(tabelaHistorico) {
-                tabelaHistorico.innerHTML += `<tr><td>${item.nome} ${ehMinha ? '(Eu)' : ''}</td><td>${dataIni}</td><td>${dataFim}</td><td>${badge}</td></tr>`;
-            }
+            if(tabelaHistorico) tabelaHistorico.innerHTML += `<tr><td>${item.nome} ${ehMinha ? '(Eu)' : ''}</td><td>${dataIni}</td><td>${dataFim}</td><td>${badge}</td></tr>`;
 
             const liderDaSolicitacao = (item.lider || '').toUpperCase();
             const meuNome = (usuarioNome || '').toUpperCase();
-
             if (liderDaSolicitacao.includes(meuNome) && !ehMinha && item.status === 'PENDENTE') {
                 souLiderDeAlguem = true;
                 if(tabelaAprovacao) {
-                    tabelaAprovacao.innerHTML += `
-                        <tr>
-                            <td><strong>${item.nome}</strong></td>
-                            <td>${dataIni}</td>
-                            <td>${dataFim}</td>
-                            <td>${item.dias_totais} dias</td>
-                            <td>
-                                <button onclick="gerenciarFerias(${item.id}, 'APROVADO')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">✔</button>
-                                <button onclick="gerenciarFerias(${item.id}, 'REJEITADO')" style="background:#dc3545; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer; margin-left:5px;">✖</button>
-                            </td>
-                        </tr>
-                    `;
+                    tabelaAprovacao.innerHTML += `<tr><td><strong>${item.nome}</strong></td><td>${dataIni}</td><td>${dataFim}</td><td>${item.dias_totais} dias</td><td><button onclick="gerenciarFerias(${item.id}, 'APROVADO')" style="background:#28a745; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">✔</button><button onclick="gerenciarFerias(${item.id}, 'REJEITADO')" style="background:#dc3545; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer; margin-left:5px;">✖</button></td></tr>`;
                 }
             }
         });
-
         if (painelLider) {
-            if (souLiderDeAlguem || usuarioPerfil === 'admin') {
-                painelLider.style.display = 'block';
-                if(btnExport) btnExport.style.display = 'inline-block';
-            } else {
-                painelLider.style.display = 'none';
-            }
+            painelLider.style.display = (souLiderDeAlguem || usuarioPerfil === 'admin') ? 'block' : 'none';
+            if(btnExport && (souLiderDeAlguem || usuarioPerfil === 'admin')) btnExport.style.display = 'inline-block';
         }
-        if (tabelaAprovacao && tabelaAprovacao.innerHTML === '') {
-            tabelaAprovacao.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">Nenhuma solicitação pendente para sua equipe.</td></tr>';
-        }
-
+        if (tabelaAprovacao && tabelaAprovacao.innerHTML === '') tabelaAprovacao.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#888;">Nenhuma solicitação pendente.</td></tr>';
     } catch (e) { console.error(e); }
 }
 
@@ -778,25 +803,18 @@ async function gerenciarFerias(id, acao) {
     if(!confirm(`Deseja realmente definir como ${acao}?`)) return;
     try {
         const res = await fetch(`${API_URL}/ferias/gerenciar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id_solicitacao: id, acao: acao, nome_lider: usuarioNome
-            })
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id_solicitacao: id, acao: acao, nome_lider: usuarioNome })
         });
         const data = await res.json();
-        if (data.sucesso) {
-            alert(data.mensagem); carregarDadosFerias();
-        } else { alert('❌ ERRO: ' + data.mensagem); }
+        if (data.sucesso) { alert(data.mensagem); carregarDadosFerias(); } else { alert('❌ ERRO: ' + data.mensagem); }
     } catch (e) { console.error(e); alert('Erro de conexão.'); }
 }
 
 function exportarRelatorioFerias() {
     if(!cacheFerias.length) return alert("Nada para exportar");
     let csvContent = "data:text/csv;charset=utf-8,Colaborador;Lider;Data Inicio;Data Fim;Dias;Status\n";
-    cacheFerias.forEach(row => {
-        csvContent += `${row.nome};${row.lider};${formatarDataExcel(row.data_inicio)};${formatarDataExcel(row.data_fim)};${row.dias_totais};${row.status}\n`;
-    });
+    cacheFerias.forEach(row => { csvContent += `${row.nome};${row.lider};${formatarDataExcel(row.data_inicio)};${formatarDataExcel(row.data_fim)};${row.dias_totais};${row.status}\n`; });
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -806,7 +824,47 @@ function exportarRelatorioFerias() {
     document.body.removeChild(link);
 }
 
+function exportarRelatorioGeral() {
+    if (!listaColaboradoresGlobal || listaColaboradoresGlobal.length === 0) return alert("Nenhum colaborador listado para exportar.");
+    const colunas = [
+        { header: "Nome", key: "NOME" },
+        { header: "CPF", key: "CPF", format: formatarCPF },
+        { header: "Situação", key: "SITUACAO" },
+        { header: "Cargo Atual", key: "CARGO_ATUAL" },
+        { header: "Área", key: "ATIVIDADE" },
+        { header: "Salário", key: "SALARIO", format: formatarSalario },
+        { header: "Tempo de Empresa", key: "TEMPO_DE_EMPRESA", format: formatarTempoDeEmpresa },
+        { header: "Escolaridade", key: "ESCOLARIDADE" },
+        { header: "PCD", key: "PCD" },
+        { header: "Telefone", key: "CONTATO" },
+        { header: "Telefone Emergência", key: "CONT_FAMILIAR" },
+        { header: "Turno", key: "TURNO" },
+        { header: "Líder Imediato", key: "LIDER" },
+        { header: "Cargo Antigo", key: "CARGO_ANTIGO" }
+    ];
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += colunas.map(c => c.header).join(";") + "\n";
+    listaColaboradoresGlobal.forEach(item => {
+        const linha = colunas.map(col => {
+            let valor = item[col.key] || "";
+            // Usa função normalizadora para exportar sempre SIM/NÃO limpo
+            if (col.key === 'PCD') { valor = normalizarStatusPCD(valor); }
+            if (col.format) valor = col.format(valor);
+            valor = String(valor).replace(/"/g, '""'); 
+            return `"${valor}"`;
+        }).join(";");
+        csvContent += linha + "\n";
+    });
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "Relatorio_Geral_Colaboradores.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
 ;(function() {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupDashboard);
     else setupDashboard();
-})();
+})();   
