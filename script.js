@@ -252,7 +252,6 @@ async function carregarFiltrosAPI() {
 // 🎮 CONTROLADOR DE CARREGAMENTO (DECISOR DE MODO)
 // ================================================================
 
-// Verifica se há qualquer filtro ativo
 function temFiltrosAtivos() {
     const s = searchBar ? searchBar.value : '';
     const st = filterStatus ? filterStatus.value : '';
@@ -296,7 +295,6 @@ async function carregarMais() {
 async function fetchAllAndFilter() {
     loadingIndicator.textContent = "Filtrando resultados (Buscando em toda a base)...";
     
-    // Parâmetros para enviar ao backend (ele filtra o que pode)
     let paramsObj = {
         search: searchBar ? searchBar.value : '',
         status: filterStatus ? filterStatus.value : '',
@@ -311,7 +309,6 @@ async function fetchAllAndFilter() {
     let allData = [];
 
     try {
-        // Loop para baixar todas as páginas do backend
         while (keepFetching) {
             paramsObj.page = page;
             const params = new URLSearchParams(paramsObj);
@@ -322,28 +319,21 @@ async function fetchAllAndFilter() {
                 keepFetching = false;
             } else {
                 allData = allData.concat(data);
-                if (data.length < 30) keepFetching = false; // Última página
+                if (data.length < 30) keepFetching = false; 
                 page++;
-                if (page > 100) keepFetching = false; // Trava de segurança
+                if (page > 200) keepFetching = false; // Trava de segurança
             }
         }
 
-        // Aplica filtros extras no Client-Side (Principalmente PCD)
         const pcdFiltro = filterPCD ? filterPCD.value : '';
         const pcdTargetNorm = pcdFiltro ? normalizarStatusPCD(pcdFiltro) : '';
 
         const filteredData = allData.filter(colab => {
             const c = normalizarObjeto(colab);
-            
-            // Filtro PCD (Client Side - Mandatório)
             if (pcdTargetNorm) {
                 const pcdBancoNorm = normalizarStatusPCD(c.PCD);
                 if (pcdBancoNorm !== pcdTargetNorm) return false;
             }
-            
-            // Outros filtros já foram aplicados pelo backend, mas poderíamos reforçar aqui se necessário.
-            // Por enquanto, confiamos no backend para Area, Lider, etc. para performance.
-            
             return true;
         });
 
@@ -352,8 +342,7 @@ async function fetchAllAndFilter() {
         if (filteredData.length === 0) {
             dashboardContainer.innerHTML = `<p>Nenhum colaborador encontrado com os filtros selecionados.</p>`;
         } else {
-            verificarSegurancaUser(filteredData); // Checa o primeiro item por segurança
-            
+            verificarSegurancaUser(filteredData);
             filteredData.forEach(colab => {
                 const colaboradorNormalizado = normalizarObjeto(colab);
                 const index = listaColaboradoresGlobal.push(colaboradorNormalizado) - 1;
@@ -361,7 +350,6 @@ async function fetchAllAndFilter() {
             });
         }
         
-        // No modo filtro total, não há botão "Carregar Mais"
         if(loadMoreButton) loadMoreButton.style.display = 'none';
 
     } catch (e) {
@@ -371,7 +359,7 @@ async function fetchAllAndFilter() {
 }
 
 // ================================================================
-// 2. MODO PAGINADO (SEM FILTROS - CARGA LEVE)
+// 2. MODO PAGINADO (SEM FILTROS)
 // ================================================================
 async function fetchPaginated() {
     loadingIndicator.textContent = "Carregando colaboradores...";
@@ -403,7 +391,6 @@ async function fetchPaginated() {
         if(loadMoreButton) {
             loadMoreButton.disabled = false;
             loadMoreButton.textContent = 'Carregar Mais';
-            // Só mostra o botão se tiver filtros vazios E vieram dados suficientes
             loadMoreButton.style.display = (usuarioPerfil === 'user' || data.length < 30) ? 'none' : 'block';
         }
 
@@ -432,7 +419,6 @@ function criarCardColaborador(colab, index) {
     const status = colab.SITUACAO || 'Indefinido';
     const statusClass = status.includes('AFASTADO') ? 'status-afastado' : (status.includes('DESLIGADO') ? 'status-desligados' : 'status-ativo');
     
-    // Tratamento visual do badge PCD
     const pcdValor = normalizarStatusPCD(colab.PCD);
     const pcdClass = (pcdValor === 'SIM') ? 'pcd-sim' : 'pcd-nao';
     
@@ -562,7 +548,6 @@ function abrirModalDetalhes(index) {
     let classificacao = colab.CLASSIFICACAO || 'NOVO';
     if (classificacao === 'SEM') classificacao = 'NOVO';
     
-    // Tratamento PCD no modal também
     const pcdValor = normalizarStatusPCD(colab.PCD);
 
     header.innerHTML = `
@@ -824,8 +809,70 @@ function exportarRelatorioFerias() {
     document.body.removeChild(link);
 }
 
-function exportarRelatorioGeral() {
-    if (!listaColaboradoresGlobal || listaColaboradoresGlobal.length === 0) return alert("Nenhum colaborador listado para exportar.");
+// 🚀 NOVA FUNÇÃO DE EXPORTAÇÃO (BUSCA TUDO DO BANCO/API)
+async function exportarRelatorioGeral() {
+    const btnContentOriginal = btnExportarGeral.innerHTML;
+    btnExportarGeral.disabled = true;
+    btnExportarGeral.innerHTML = '<span class="material-icons-outlined" style="animation:spin 1s linear infinite; margin-right:5px;">sync</span> Baixando Banco Completo...';
+
+    // Se tiver filtros na tela, respeitamos. Se não, baixa TUDO mesmo.
+    let paramsObj = {
+        search: searchBar ? searchBar.value : '',
+        status: filterStatus ? filterStatus.value : '',
+        area: filterArea ? filterArea.value : '',
+        lider: filterLider ? filterLider.value : '',
+        classificacao: filterClassificacao ? filterClassificacao.value : ''
+    };
+    if (usuarioPerfil === 'user') paramsObj = { cpf_filtro: usuarioCPF };
+
+    let allData = [];
+    let page = 0;
+    let keepFetching = true;
+
+    try {
+        // Loop para baixar TODAS as páginas da API
+        while (keepFetching) {
+            paramsObj.page = page;
+            const params = new URLSearchParams(paramsObj);
+            const res = await fetch(`${API_URL}/colaboradores?${params}`);
+            const json = await res.json();
+            const data = json.data;
+
+            if (!data || data.length === 0) {
+                keepFetching = false;
+            } else {
+                allData = allData.concat(data);
+                if (data.length < 30) keepFetching = false; // Se vier menos de 30, acabou
+                page++;
+                if (page > 200) keepFetching = false; // Trava de segurança (max 6000 registros por vez)
+            }
+        }
+
+        // Aplica filtro PCD no cliente (já que API não filtra)
+        if (filterPCD && filterPCD.value) {
+            const pcdTargetNorm = normalizarStatusPCD(filterPCD.value);
+            allData = allData.filter(colab => {
+                 return normalizarStatusPCD(colab.PCD) === pcdTargetNorm;
+            });
+        }
+
+        if (allData.length === 0) {
+            alert("Nenhum dado encontrado com os filtros atuais para exportar.");
+        } else {
+            // Gera o CSV com os dados completos
+            gerarCSVExportacao(allData);
+        }
+
+    } catch (e) {
+        console.error(e);
+        alert("Erro de conexão ao tentar baixar o banco completo.");
+    } finally {
+        btnExportarGeral.disabled = false;
+        btnExportarGeral.innerHTML = btnContentOriginal;
+    }
+}
+
+function gerarCSVExportacao(dados) {
     const colunas = [
         { header: "Nome", key: "NOME" },
         { header: "CPF", key: "CPF", format: formatarCPF },
@@ -842,23 +889,27 @@ function exportarRelatorioGeral() {
         { header: "Líder Imediato", key: "LIDER" },
         { header: "Cargo Antigo", key: "CARGO_ANTIGO" }
     ];
+
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += colunas.map(c => c.header).join(";") + "\n";
-    listaColaboradoresGlobal.forEach(item => {
+
+    dados.forEach(item => {
         const linha = colunas.map(col => {
             let valor = item[col.key] || "";
-            // Usa função normalizadora para exportar sempre SIM/NÃO limpo
-            if (col.key === 'PCD') { valor = normalizarStatusPCD(valor); }
+            // Normaliza PCD para exportação limpa
+            if (col.key === 'PCD') valor = normalizarStatusPCD(valor);
+            
             if (col.format) valor = col.format(valor);
             valor = String(valor).replace(/"/g, '""'); 
             return `"${valor}"`;
         }).join(";");
         csvContent += linha + "\n";
     });
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Relatorio_Geral_Colaboradores.csv");
+    link.setAttribute("download", "Relatorio_Geral_Completo.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -867,4 +918,4 @@ function exportarRelatorioGeral() {
 ;(function() {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupDashboard);
     else setupDashboard();
-})();   
+})();
