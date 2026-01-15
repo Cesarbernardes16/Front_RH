@@ -20,7 +20,7 @@ const btnSalvarSenha = document.getElementById('btn-salvar-senha');
 const errorModal = document.getElementById('error-message-modal');
 
 // URL do Backend
-const API_URL = 'https://backend-g-rh.onrender.com';
+const API_URL = 'https://backend-g-rh.onrender.com/login';
 //const API_URL = 'http://localhost:3000';
 
 // ==========================================
