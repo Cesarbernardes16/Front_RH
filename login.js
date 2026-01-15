@@ -20,7 +20,8 @@ const btnSalvarSenha = document.getElementById('btn-salvar-senha');
 const errorModal = document.getElementById('error-message-modal');
 
 // URL do Backend
-const API_URL = 'https://backend-g-rh.onrender.com';
+// const API_URL = 'https://backend-g-rh.onrender.com';
+const API_URL = 'http://localhost:3000';
 
 // ==========================================
 // 2. VERIFICAÇÃO INICIAL
@@ -52,8 +53,7 @@ loginForm.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (response.ok && data.sucesso) {
-            // Agora passamos também o token recebido
-            salvarSessaoEEentrar(data.usuario, data.token);
+            salvarSessaoEEentrar(data.usuario, data.usuario && data.usuario.token);
         } 
         else if (data.precisa_definir_senha) {
             abrirModalCriacaoSenha(cpf);
@@ -118,11 +118,18 @@ formCriarSenha.addEventListener('submit', async (e) => {
 
         if (response.ok && data.sucesso) {
             alert("Identidade confirmada e senha criada com sucesso! Redirecionando...");
-            if(data.usuario) {
-                // Login automático após criar senha, passando o token
-                salvarSessaoEEentrar(data.usuario, data.token);
+            const loginResponse = await fetch(`${API_URL}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cpf, senha: novaSenha })
+            });
+
+            const loginData = await loginResponse.json();
+
+            if (loginResponse.ok && loginData.sucesso) {
+                salvarSessaoEEentrar(loginData.usuario, loginData.usuario && loginData.usuario.token);
             } else {
-                window.location.reload();
+                throw new Error(loginData.mensagem || 'Senha criada, mas falhou ao iniciar sessão.');
             }
         } else {
             throw new Error(data.mensagem || 'Erro ao criar senha.');
